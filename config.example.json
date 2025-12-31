@@ -1,0 +1,22 @@
+{
+  "remote": {
+    "host": "ilceatm137",
+    "username": "jenkins",
+    "password": "CHANGE_ME",
+    "basePath": "/jenkins/jenkins/PRASA"
+  },
+  "directories": {
+    "prerequisite": "hashicorp-vault-helm-pre-requisite",
+    "cluster": "HashiCorp-Vault-Cluster",
+    "postInstall": "hashicorp-vault-post-install-helm-1.1.6"
+  },
+  "deployment": {
+    "namespace": "vault",
+    "releaseName": "vault",
+    "helmTimeout": "10m"
+  },
+  "logging": {
+    "logDir": "logs",
+    "logLevel": "INFO"
+  }
+}

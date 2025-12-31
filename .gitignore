@@ -1,0 +1,20 @@
+# Logs
+logs/
+*.log
+
+# Sensitive configuration (contains credentials)
+config.json
+
+# PowerShell module cache
+*.psm1.cache
+
+# VS Code settings
+.vscode/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*~
