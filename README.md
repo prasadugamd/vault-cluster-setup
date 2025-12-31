@@ -76,6 +76,9 @@ Test SSH connectivity before deployment:
 Skip specific steps:
 
 ```powershell
+# Skip certificate generation (use existing certificates)
+.\setup-vault-cluster.ps1 -SkipCertificates
+
 # Skip prerequisites
 .\setup-vault-cluster.ps1 -SkipPrerequisites
 
@@ -91,6 +94,9 @@ Skip specific steps:
 Run deployment steps independently:
 
 ```powershell
+# Generate certificates only
+.\Generate-Certificates.ps1
+
 # Prerequisites only
 .\Deploy-Prerequisites.ps1
 
@@ -102,6 +108,14 @@ Run deployment steps independently:
 ```
 
 ## Deployment Steps
+
+### 0. TLS Certificate Generation (NEW!)
+- Generates CA certificate and private key
+- Creates server certificates with proper SANs
+- Includes all Vault service DNS names
+- Creates Kubernetes TLS secrets automatically
+- Copies certificates to cluster directory
+- Validity: 10 years
 
 ### 1. Prerequisites Deployment
 - Installs required Kubernetes resources
@@ -134,11 +148,32 @@ The automation works with these directories on jenkins@ilceatm137:
 
 ## Certificate Management
 
-The scripts automatically:
-- Detect certificates in the cluster directory
-- Create Kubernetes TLS secrets
-- Configure Vault to use certificates
-- Support both PEM and CRT formats
+**NEW: Automatic TLS Certificate Generation!**
+
+The script now automatically generates TLS certificates:
+- ✅ **Generates CA certificate** (4096-bit RSA)
+- ✅ **Creates server certificates** with proper SANs for Kubernetes
+- ✅ **Includes all service DNS names** (vault, vault-0, vault-1, vault-2, etc.)
+- ✅ **Creates Kubernetes TLS secret** in vault namespace
+- ✅ **Copies to cluster directory** automatically
+- ✅ **10-year validity** period
+
+**Certificate SANs include:**
+- `vault`, `vault.vault`, `vault.vault.svc.cluster.local`
+- `vault-0.vault-internal.vault.svc.cluster.local`
+- `vault-1.vault-internal.vault.svc.cluster.local`
+- `vault-2.vault-internal.vault.svc.cluster.local`
+- `localhost`, `127.0.0.1`
+
+**Generated files:**
+- `/jenkins/jenkins/PRASA/vault-certs/ca.crt` - CA certificate
+- `/jenkins/jenkins/PRASA/vault-certs/vault.crt` - Server certificate
+- `/jenkins/jenkins/PRASA/vault-certs/vault.key` - Private key
+
+**To use existing certificates instead:**
+```powershell
+.\setup-vault-cluster.ps1 -SkipCertificates
+```
 
 ## Logging
 

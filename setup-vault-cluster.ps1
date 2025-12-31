@@ -15,6 +15,9 @@
 .PARAMETER ConfigFile
     Path to the configuration JSON file (default: config.json)
 
+.PARAMETER SkipCertificates
+    Skip TLS certificate generation (use existing certificates)
+
 .PARAMETER SkipPrerequisites
     Skip prerequisites installation
 
@@ -43,6 +46,9 @@
 param(
     [Parameter(Mandatory=$false)]
     [string]$ConfigFile = "config.json",
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$SkipCertificates,
     
     [Parameter(Mandatory=$false)]
     [switch]$SkipPrerequisites,
@@ -149,6 +155,42 @@ Write-Host ""
 
 # Track deployment steps
 $deploymentSteps = @()
+
+# Step 0: Generate Certificates
+if (-not $SkipCertificates) {
+    Write-SectionHeader "STEP 0: GENERATING TLS CERTIFICATES"
+    
+    $certScript = Join-Path $PSScriptRoot "Generate-Certificates.ps1"
+    if (Test-Path $certScript) {
+        try {
+            & $certScript -ConfigFile $ConfigFile
+            if ($LASTEXITCODE -eq 0) {
+                Write-LogMessage "INFO" "✓ TLS certificates generated successfully"
+                $deploymentSteps += "Certificates: SUCCESS"
+            }
+            else {
+                Write-LogMessage "ERROR" "✗ Certificate generation failed"
+                $deploymentSteps += "Certificates: FAILED"
+                Write-LogMessage "ERROR" "Stopping deployment due to certificate generation failure"
+                exit 1
+            }
+        }
+        catch {
+            Write-LogMessage "ERROR" "Error executing certificate generation script: $_"
+            $deploymentSteps += "Certificates: ERROR"
+            exit 1
+        }
+    }
+    else {
+        Write-LogMessage "WARN" "Certificate generation script not found, skipping..."
+        $deploymentSteps += "Certificates: SKIPPED"
+    }
+    Write-Host ""
+}
+else {
+    Write-LogMessage "INFO" "Skipping certificate generation (as requested)"
+    $deploymentSteps += "Certificates: SKIPPED"
+}
 
 # Step 1: Deploy Prerequisites
 if (-not $SkipPrerequisites) {
