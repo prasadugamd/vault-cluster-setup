@@ -110,6 +110,23 @@ else {
     }
 }
 
+# Verify OpenShift Route and display access information
+Write-LogMessage "INFO" "Verifying OpenShift Route for external access..."
+
+$getRouteCmd = "kubectl get route vault -n $($config.deployment.namespace) -o jsonpath='{.spec.host}' 2>/dev/null"
+$result = Invoke-RemoteCommand -RemoteHost $remoteHost -Username $username -Password $password -Command $getRouteCmd
+
+if ($result.Success -and $result.Output) {
+    $routeHost = $result.Output.Trim()
+    Write-LogMessage "INFO" "✓ Vault Route is active"
+    Write-LogMessage "INFO" "Vault External URL: https://$routeHost"
+    Write-LogMessage "INFO" "Use this URL to access Vault UI and API from outside the cluster"
+}
+else {
+    Write-LogMessage "WARN" "Route not found or not accessible yet"
+    Write-LogMessage "INFO" "Route should have been created during prerequisites phase"
+}
+
 # Check Vault initialization status
 Write-LogMessage "INFO" "Checking Vault initialization status..."
 $vaultPod = "kubectl get pods -n $($config.deployment.namespace) -l app.kubernetes.io/name=vault -o jsonpath='{.items[0].metadata.name}'"

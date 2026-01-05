@@ -118,6 +118,8 @@ Run deployment steps independently:
 - Validity: 10 years
 
 ### 1. Prerequisites Deployment
+- Creates namespace
+- **Creates OpenShift Route** for external access (passthrough TLS)
 - Installs required Kubernetes resources
 - Sets up secrets and ConfigMaps
 - Configures storage classes
@@ -131,6 +133,7 @@ Run deployment steps independently:
 
 ### 3. Post-Installation
 - Applies additional configurations
+- Verifies OpenShift Route and displays access URL
 - Sets up monitoring and alerts
 - Configures backup jobs
 - Validates deployment
@@ -175,6 +178,63 @@ The script now automatically generates TLS certificates:
 .\setup-vault-cluster.ps1 -SkipCertificates
 ```
 
+## OpenShift Route Configuration
+
+**Automatic OpenShift Route Creation!**
+
+The prerequisites script now automatically creates an OpenShift Route for external Vault access **before** deploying the cluster:
+
+**Deployment Order:**
+1. ✅ Generate TLS certificates
+2. ✅ Create namespace
+3. ✅ **Create OpenShift Route** ← Created during prerequisites phase
+4. ✅ Install prerequisites (Helm charts)
+5. ✅ Deploy Vault cluster
+6. ✅ Verify route and display access URL
+
+- ✅ **Creates Route early** - before Vault cluster deployment
+- ✅ **Passthrough TLS** termination (Vault handles TLS)
+- ✅ **Auto-generated hostname** by OpenShift router
+- ✅ **Secure HTTPS only** (no HTTP redirect)
+- ✅ **Service Target:** `vault-active` (will be available after cluster deployment)
+
+**Route Specifications:**
+- **Service Target:** `vault-active` (active Vault node)
+- **Port:** 8200 (HTTPS)
+- **TLS Mode:** Passthrough
+- **Insecure Traffic:** Disabled
+
+**Accessing Vault via Route:**
+```bash
+# Get the route URL
+oc get route vault -n vault -o jsonpath='{.spec.host}'
+
+# Or describe for full details
+oc describe route vault -n vault
+
+# Access Vault UI/API
+curl -k https://<route-hostname>/v1/sys/health
+```
+
+**Manual Route Creation (if needed):**
+```bash
+# Using template file
+kubectl apply -f vault-route-template.yaml
+
+# Or create directly
+oc create route passthrough vault \
+  --service=vault-active \
+  --port=8200 \
+  --namespace=vault
+```
+
+**Custom Hostname (optional):**
+Edit [vault-route-template.yaml](vault-route-template.yaml) and uncomment the `host` field:
+```yaml
+spec:
+  host: vault.your-custom-domain.com
+```
+
 ## Logging
 
 All deployment activities are logged to:
@@ -208,6 +268,12 @@ After successful deployment:
 
 4. **Access Vault UI**
    ```bash
+   # Via OpenShift Route (automatically created)
+   # Get the route URL
+   kubectl get route vault -n vault -o jsonpath='{.spec.host}'
+   # Access: https://<route-host>
+   
+   # Or via port-forward
    kubectl port-forward -n vault svc/vault 8200:8200
    ```
    Then open: https://localhost:8200

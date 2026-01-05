@@ -79,6 +79,50 @@ if ($result.Output -like "*CHART_FOUND*") {
     $result = Invoke-RemoteCommand -RemoteHost $remoteHost -Username $username -Password $password -Command $createNsCmd
     Write-LogMessage "INFO" $result.Output
     
+    # Create OpenShift Route for Vault (before prerequisites installation)
+    Write-LogMessage "INFO" "Creating OpenShift Route for Vault external access..."
+    
+    # Create route YAML definition
+    $routeYaml = @"
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: vault
+  namespace: $($config.deployment.namespace)
+  labels:
+    app.kubernetes.io/instance: $($config.deployment.releaseName)
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: vault
+spec:
+  to:
+    kind: Service
+    name: vault-active
+    weight: 100
+  port:
+    targetPort: 8200
+  tls:
+    termination: passthrough
+  wildcardPolicy: None
+"@
+
+    # Create route using kubectl
+    $createRouteCmd = "echo '$routeYaml' | kubectl apply -f -"
+    $result = Invoke-RemoteCommand -RemoteHost $remoteHost -Username $username -Password $password -Command $createRouteCmd
+    
+    if ($result.Success) {
+        Write-LogMessage "INFO" "✓ OpenShift Route created successfully"
+        
+        # Get route details (may not have hostname yet until service exists)
+        $getRouteCmd = "kubectl get route vault -n $($config.deployment.namespace) -o jsonpath='{.spec.host}' 2>/dev/null || echo 'Route created, hostname will be assigned when service is available'"
+        $result = Invoke-RemoteCommand -RemoteHost $remoteHost -Username $username -Password $password -Command $getRouteCmd
+        $routeInfo = $result.Output.Trim()
+        Write-LogMessage "INFO" "Route: $routeInfo"
+    }
+    else {
+        Write-LogMessage "WARN" "Route creation failed or already exists (will retry after service creation)"
+        Write-LogMessage "WARN" $result.Output
+    }
+    
     # Check if values.yaml exists
     $valuesCheckCmd = "test -f $prereqPath/values.yaml && echo 'VALUES_FOUND' || echo 'NO_VALUES'"
     $result = Invoke-RemoteCommand -RemoteHost $remoteHost -Username $username -Password $password -Command $valuesCheckCmd

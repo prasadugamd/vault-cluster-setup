@@ -1,0 +1,49 @@
+# OpenShift Route Template for Vault
+# This route provides external access to the Vault cluster via passthrough TLS
+# The route is automatically created by Deploy-PostInstall.ps1
+# For manual creation, update the namespace and apply: kubectl apply -f vault-route-template.yaml
+
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: vault
+  namespace: vault  # Change to your namespace (e.g., vault-1, unsealer-vault)
+  labels:
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: vault
+spec:
+  # host: vault-vault.apps.indelocpbmatm1058.ocpd.corp.amdocs.com  # Optional: Uncomment to specify custom hostname
+  to:
+    kind: Service
+    name: vault-active  # Points to the active Vault service
+    weight: 100
+  port:
+    targetPort: 8200  # Vault API/UI port
+  tls:
+    termination: passthrough  # TLS handled by Vault itself
+    insecureEdgeTerminationPolicy: None  # Only HTTPS allowed
+  wildcardPolicy: None
+
+---
+# Alternative Route Configuration with Edge Termination
+# Uncomment if you want OpenShift to handle TLS termination instead
+# apiVersion: route.openshift.io/v1
+# kind: Route
+# metadata:
+#   name: vault-edge
+#   namespace: vault
+#   labels:
+#     app.kubernetes.io/instance: vault
+#     app.kubernetes.io/name: vault
+# spec:
+#   to:
+#     kind: Service
+#     name: vault-active
+#     weight: 100
+#   port:
+#     targetPort: 8200
+#   tls:
+#     termination: edge
+#     insecureEdgeTerminationPolicy: Redirect
+#   wildcardPolicy: None
