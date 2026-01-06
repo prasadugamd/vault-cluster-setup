@@ -30,6 +30,9 @@ CLUSTER_DIR=$(jq -r '.directories.cluster' "$CONFIG_FILE")
 # Initialize logger
 initialize_logger "$LOG_DIR" "$LOG_LEVEL"
 
+# Get absolute path of log file to use after directory changes
+LOG_FILE="$(cd "$(dirname "$LOG_FILE")" && pwd)/$(basename "$LOG_FILE")"
+
 write_section_header "VAULT TLS CERTIFICATE GENERATION"
 
 log_message "INFO" "Generating TLS certificates for Vault cluster"

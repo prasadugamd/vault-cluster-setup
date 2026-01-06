@@ -1,6 +1,6 @@
 {
   "directories": {
-    "basePath": "/jenkins/jenkins/PRASA",
+    "basePath": "/jenkins_home/vault-cluster-setup",
     "prerequisite": "hashicorp-vault-helm-pre-requisite",
     "cluster": "HashiCorp-Vault-Cluster/Unsealer/fndsec-hashicorp-vault-helm",
     "postInstall": "hashicorp-vault-post-install-helm-1.1.6/fndsec-hashicorp-vault-post-install-helm"
@@ -9,7 +9,7 @@
     "namespace": "unsealer-vault",
     "releaseName": "unsealer-hashicorp-vault",
     "routeName": "vault",
-    "routeUrl": "vault-unsealer-vault.apps.indelocpbmatm1058.ocpd.corp.amdocs.com",
+    "routeUrl": "vault-unsealer-vault.apps.indelocpbmatm1059.ocpd.corp.amdocs.com",
     "helmTimeout": "10m"
   },
   "logging": {

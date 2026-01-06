@@ -9,7 +9,7 @@
     "namespace": "vault-1",
     "releaseName": "hashicorp-vault",
     "routeName": "vault",
-    "routeUrl": "vault-vault-1.apps.indelocpbmatm1058.ocpd.corp.amdocs.com",
+    "routeUrl": "vault-vault-1.apps.indelocpbmatm1059.ocpd.corp.amdocs.com",
     "helmTimeout": "10m"
   },
   "logging": {
