@@ -59,7 +59,7 @@ if [[ -f "$PREREQ_PATH/Chart.yaml" ]]; then
     
     # Create namespace if not exists
     log_message "INFO" "Creating namespace: $NAMESPACE"
-    oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f - 2>&1 | tee -a "$LOG_FILE"
+    oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f - >> "$LOG_FILE" 2>&1
     
     # Create OpenShift Route for Vault (before prerequisites installation)
     log_message "INFO" "Creating OpenShift Route for Vault external access..."
@@ -76,7 +76,7 @@ if [[ -f "$PREREQ_PATH/Chart.yaml" ]]; then
     # Create route YAML and apply
     if [[ -n "$ROUTE_URL" ]]; then
         # Create route with custom host
-        oc apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
+        oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -100,7 +100,7 @@ spec:
 EOF
     else
         # Create route without custom host (OpenShift will assign)
-        oc apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
+        oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -150,7 +150,7 @@ EOF
     log_message "INFO" "Installing prerequisites with Helm..."
     cd "$PREREQ_PATH"
     
-    if helm upgrade --install fndsec-hashicorp-vault-helm-pre-requisite . --namespace "ms360-platform-crd" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait 2>&1 | tee -a "$LOG_FILE"; then
+    if helm upgrade --install fndsec-hashicorp-vault-helm-pre-requisite . --namespace "ms360-platform-crd" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Prerequisites installed successfully"
     else
         log_message "ERROR" "✗ Prerequisites installation failed"
@@ -168,7 +168,7 @@ else
         
         # Make executable and run
         chmod +x "$SETUP_SCRIPT"
-        if bash "$SETUP_SCRIPT" 2>&1 | tee -a "$LOG_FILE"; then
+        if bash "$SETUP_SCRIPT" >> "$LOG_FILE" 2>&1; then
             log_message "INFO" "✓ Setup script executed successfully"
         else
             log_message "ERROR" "✗ Setup script failed"
@@ -182,10 +182,11 @@ fi
 
 # Verify deployment
 log_message "INFO" "Verifying prerequisite deployment..."
-oc get all -n "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
+oc get all -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
 
 write_section_header "PREREQUISITES DEPLOYMENT COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
 
 exit 0
+
 

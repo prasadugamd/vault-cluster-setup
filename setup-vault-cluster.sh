@@ -122,7 +122,7 @@ echo ""
 
 # Test Kubernetes connectivity
 log_message "INFO" "Testing Kubernetes cluster connectivity..."
-if oc cluster-info 2>&1 | tee -a "$LOG_FILE" | head -5; then
+if oc cluster-info >> "$LOG_FILE" 2>&1 | head -5; then
     log_message "INFO" "✓ Kubernetes cluster accessible"
 else
     log_message "ERROR" "✗ Cannot access Kubernetes cluster"
@@ -247,17 +247,17 @@ echo ""
 
 # Get final cluster status
 log_message "INFO" "Final Cluster Status:"
-kubectl get all -n "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
+kubectl get all -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
 echo ""
 
 # Check Vault pods specifically
 log_message "INFO" "Vault Pods Status:"
-kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide 2>&1 | tee -a "$LOG_FILE"
+kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide >> "$LOG_FILE" 2>&1
 echo ""
 
 # Get Vault service endpoints
 log_message "INFO" "Vault Service Endpoints:"
-kubectl get svc -n "$NAMESPACE" -l app.kubernetes.io/name=vault 2>&1 | tee -a "$LOG_FILE"
+kubectl get svc -n "$NAMESPACE" -l app.kubernetes.io/name=vault >> "$LOG_FILE" 2>&1
 echo ""
 
 # Get Route information
@@ -282,3 +282,4 @@ log_message "INFO" "  4. Test Vault connectivity"
 echo ""
 
 exit 0
+

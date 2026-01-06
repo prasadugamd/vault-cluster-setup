@@ -67,7 +67,7 @@ if [[ -f "$POST_INSTALL_PATH/Chart.yaml" ]]; then
     log_message "INFO" "Running post-installation with Helm..."
     cd "$POST_INSTALL_PATH"
     
-    if helm upgrade --install vault-post-install . --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait 2>&1 | tee -a "$LOG_FILE"; then
+    if helm upgrade --install vault-post-install . --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Post-installation completed successfully"
     else
         log_message "ERROR" "✗ Post-installation failed"
@@ -87,7 +87,7 @@ else
         chmod +x "$POST_SCRIPT"
         cd "$POST_INSTALL_PATH"
         
-        if bash "$POST_SCRIPT" 2>&1 | tee -a "$LOG_FILE"; then
+        if bash "$POST_SCRIPT" >> "$LOG_FILE" 2>&1; then
             log_message "INFO" "✓ Post-install script executed successfully"
         else
             log_message "ERROR" "✗ Post-install script failed"
@@ -124,14 +124,14 @@ if [[ -n "$POD_NAME" ]]; then
     log_message "INFO" "Vault pod: $POD_NAME"
     
     log_message "INFO" "Vault status:"
-    oc exec -n "$NAMESPACE" "$POD_NAME" -- vault status 2>&1 | tee -a "$LOG_FILE" || log_message "WARN" "Vault may not be initialized yet"
+    oc exec -n "$NAMESPACE" "$POD_NAME" -- vault status >> "$LOG_FILE" 2>&1 || log_message "WARN" "Vault may not be initialized yet"
 else
     log_message "WARN" "No Vault pods found"
 fi
 
 # Final verification
 log_message "INFO" "Final cluster verification..."
-oc get all -n "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
+oc get all -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
 
 write_section_header "POST-INSTALLATION COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
@@ -143,4 +143,5 @@ log_message "INFO" "  3. Unseal Vault: oc exec -n $NAMESPACE $POD_NAME -- vault 
 log_message "INFO" "  4. Access Vault UI: https://$ROUTE_HOST (if route is configured)"
 
 exit 0
+
 

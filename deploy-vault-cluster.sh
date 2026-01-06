@@ -63,7 +63,7 @@ if [[ -f "$CLUSTER_PATH/Chart.yaml" ]]; then
         log_message "INFO" "✓ Namespace $NAMESPACE already exists"
     else
         log_message "INFO" "Creating namespace: $NAMESPACE"
-        oc create namespace "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
+        oc create namespace "$NAMESPACE" >> "$LOG_FILE" 2>&1
         if [[ $? -eq 0 ]]; then
             log_message "INFO" "✓ Namespace created successfully"
         else
@@ -88,7 +88,7 @@ if [[ -f "$CLUSTER_PATH/Chart.yaml" ]]; then
             --from-file=tls.key="$CERT_DIR/vault.key" \
             --from-file=vault.crt="$CERT_DIR/vault.crt" \
             --from-file=vault.key="$CERT_DIR/vault.key" \
-            --dry-run=client -o yaml | oc apply -f - 2>&1 | tee -a "$LOG_FILE"
+            --dry-run=client -o yaml | oc apply -f - >> "$LOG_FILE" 2>&1
         log_message "INFO" "TLS secret created/updated"
     else
         log_message "WARN" "Certificate directory not found: $CERT_DIR"
@@ -122,7 +122,7 @@ if [[ -f "$CLUSTER_PATH/Chart.yaml" ]]; then
     log_message "INFO" "Deploying Vault cluster with Helm..."
     cd "$CLUSTER_PATH"
     
-    if helm upgrade --install "$RELEASE_NAME" . --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait 2>&1 | tee -a "$LOG_FILE"; then
+    if helm upgrade --install "$RELEASE_NAME" . --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Vault cluster deployed successfully"
     else
         log_message "ERROR" "✗ Vault cluster deployment failed"
@@ -137,7 +137,7 @@ fi
 
 # Wait for pods to be ready
 log_message "INFO" "Waiting for Vault pods to be ready..."
-if oc wait --for=condition=Ready pods -l app.kubernetes.io/name=vault -n "$NAMESPACE" --timeout=5m 2>&1 | tee -a "$LOG_FILE"; then
+if oc wait --for=condition=Ready pods -l app.kubernetes.io/name=vault -n "$NAMESPACE" --timeout=5m >> "$LOG_FILE" 2>&1; then
     log_message "INFO" "✓ Vault pods are ready"
 else
     log_message "WARN" "Pods may still be initializing..."
@@ -145,11 +145,11 @@ fi
 
 # Get pods status
 log_message "INFO" "Vault pods status:"
-oc get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide 2>&1 | tee -a "$LOG_FILE"
+oc get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide >> "$LOG_FILE" 2>&1
 
 # Get services
 log_message "INFO" "Vault services:"
-oc get svc -n "$NAMESPACE" -l app.kubernetes.io/name=vault 2>&1 | tee -a "$LOG_FILE"
+oc get svc -n "$NAMESPACE" -l app.kubernetes.io/name=vault >> "$LOG_FILE" 2>&1
 
 write_section_header "VAULT CLUSTER DEPLOYMENT COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
@@ -160,4 +160,5 @@ log_message "INFO" "  2. Initialize Vault: oc exec -n $NAMESPACE vault-0 -- vaul
 log_message "INFO" "  3. Unseal Vault nodes with the unseal keys"
 
 exit 0
+
 

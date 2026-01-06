@@ -184,10 +184,10 @@ fi
 log_message "INFO" "Verifying certificate..."
 if openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" 2>&1 | grep -q "OK"; then
     log_message "INFO" "✓ Certificate verification passed"
-    openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" 2>&1 | tee -a "$LOG_FILE"
+    openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" >> "$LOG_FILE" 2>&1
 else
     log_message "WARN" "Certificate verification warning"
-    openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" 2>&1 | tee -a "$LOG_FILE"
+    openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" >> "$LOG_FILE" 2>&1
 fi
 
 # Display certificate details
@@ -202,10 +202,10 @@ ls -lh "$VAULT_CERT_DIR" | tee -a "$LOG_FILE"
 log_message "INFO" "Creating Kubernetes TLS secret..."
 
 # Create namespace if it doesn't exist
-oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f - 2>&1 | tee -a "$LOG_FILE"
+oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f - >> "$LOG_FILE" 2>&1
 
 # Delete existing secret if present
-oc delete secret vault-server-tls -n "$NAMESPACE" --ignore-not-found 2>&1 | tee -a "$LOG_FILE"
+oc delete secret vault-server-tls -n "$NAMESPACE" --ignore-not-found >> "$LOG_FILE" 2>&1
 
 # Prepare certificate files for vault-1 namespace
 if [[ "$NAMESPACE" == "vault-1" ]]; then
@@ -220,14 +220,14 @@ if [[ "$NAMESPACE" == "vault-1" ]]; then
       --from-file=vault.key="$VAULT_CERT_DIR/vault.key" \
       --from-file=vault.crt="$VAULT_CERT_DIR/vault.crt" \
       --from-file=vault.ca="$CA_DIR/ca.crt" \
-      2>&1 | tee -a "$LOG_FILE"
+      >> "$LOG_FILE" 2>&1
 else
     # Create new secret for other namespaces using namespace-specific files
     oc create secret generic vault-server-tls -n "$NAMESPACE" \
       --from-file=vault.key="$VAULT_CERT_DIR/$NAMESPACE.key" \
       --from-file=vault.crt="$VAULT_CERT_DIR/$NAMESPACE.crt" \
       --from-file=vault.ca="$CA_DIR/ca.crt" \
-      2>&1 | tee -a "$LOG_FILE"
+      >> "$LOG_FILE" 2>&1
 fi
 
 if [[ $? -eq 0 ]]; then
@@ -239,7 +239,7 @@ fi
 
 # Verify secret
 log_message "INFO" "Verifying Kubernetes secret..."
-oc get secret vault-server-tls -n "$NAMESPACE" -o jsonpath='{.metadata.name}' 2>&1 | tee -a "$LOG_FILE"
+oc get secret vault-server-tls -n "$NAMESPACE" -o jsonpath='{.metadata.name}' >> "$LOG_FILE" 2>&1
 log_message "INFO" "Secret created successfully"
 
 # Summary
@@ -261,3 +261,4 @@ log_message "INFO" ""
 log_message "INFO" "Next: Run deploy-prerequisites.sh to continue setup"
 
 exit 0
+
