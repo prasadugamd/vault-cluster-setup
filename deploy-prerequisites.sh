@@ -64,12 +64,47 @@ if [[ -f "$PREREQ_PATH/Chart.yaml" ]]; then
     # Create OpenShift Route for Vault (before prerequisites installation)
     log_message "INFO" "Creating OpenShift Route for Vault external access..."
     
+    # Get route configuration from config file
+    ROUTE_NAME=$(jq -r '.deployment.routeName // "vault"' "$CONFIG_FILE")
+    ROUTE_URL=$(jq -r '.deployment.routeUrl // ""' "$CONFIG_FILE")
+    
+    log_message "INFO" "Route name: $ROUTE_NAME"
+    if [[ -n "$ROUTE_URL" ]]; then
+        log_message "INFO" "Route URL: $ROUTE_URL"
+    fi
+    
     # Create route YAML and apply
-    kubectl apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
+    if [[ -n "$ROUTE_URL" ]]; then
+        # Create route with custom host
+        kubectl apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: vault
+  name: $ROUTE_NAME
+  namespace: $NAMESPACE
+  labels:
+    app.kubernetes.io/instance: $RELEASE_NAME
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: vault
+spec:
+  host: $ROUTE_URL
+  to:
+    kind: Service
+    name: vault-active
+    weight: 100
+  port:
+    targetPort: 8200
+  tls:
+    termination: passthrough
+  wildcardPolicy: None
+EOF
+    else
+        # Create route without custom host (OpenShift will assign)
+        kubectl apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: $ROUTE_NAME
   namespace: $NAMESPACE
   labels:
     app.kubernetes.io/instance: $RELEASE_NAME
@@ -86,12 +121,13 @@ spec:
     termination: passthrough
   wildcardPolicy: None
 EOF
+    fi
     
     if [[ $? -eq 0 ]]; then
         log_message "INFO" "✓ OpenShift Route created successfully"
         
         # Get route details (may not have hostname yet until service exists)
-        ROUTE_HOST=$(kubectl get route vault -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route created, hostname will be assigned when service is available")
+        ROUTE_HOST=$(kubectl get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route created, hostname will be assigned when service is available")
         log_message "INFO" "Route: $ROUTE_HOST"
     else
         log_message "WARN" "Route creation failed or already exists (will retry after service creation)"

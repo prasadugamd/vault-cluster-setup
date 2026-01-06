@@ -101,7 +101,10 @@ fi
 # Verify OpenShift Route and display access information
 log_message "INFO" "Verifying OpenShift Route for external access..."
 
-ROUTE_HOST=$(kubectl get route vault -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+# Get route name from config
+ROUTE_NAME=$(jq -r '.deployment.routeName // "vault"' "$CONFIG_FILE")
+
+ROUTE_HOST=$(kubectl get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 
 if [[ -n "$ROUTE_HOST" ]]; then
     log_message "INFO" "✓ Vault Route is active"

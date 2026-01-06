@@ -52,18 +52,17 @@ cd "$CERT_DIR"
 
 # Generate SANs (Subject Alternative Names)
 SERVICE_NAME="$RELEASE_NAME"
+
+# Get Vault OCP route URL from config or environment
+VAULT_ROUTE_URL=$(jq -r '.deployment.routeUrl // "vault-'"$NAMESPACE"'.apps.cluster.domain.com"' "$CONFIG_FILE")
+
 SANS=(
     "DNS:$SERVICE_NAME"
-    "DNS:$SERVICE_NAME.$NAMESPACE"
-    "DNS:$SERVICE_NAME.$NAMESPACE.svc"
     "DNS:$SERVICE_NAME.$NAMESPACE.svc.cluster.local"
-    "DNS:$SERVICE_NAME-0.$SERVICE_NAME-internal"
-    "DNS:$SERVICE_NAME-0.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local"
-    "DNS:$SERVICE_NAME-1.$SERVICE_NAME-internal"
-    "DNS:$SERVICE_NAME-1.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local"
-    "DNS:$SERVICE_NAME-2.$SERVICE_NAME-internal"
-    "DNS:$SERVICE_NAME-2.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local"
-    "DNS:localhost"
+    "DNS:$SERVICE_NAME-active"
+    "DNS:$SERVICE_NAME-active.$NAMESPACE.svc.cluster.local"
+    "DNS:*.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local"
+    "DNS:$VAULT_ROUTE_URL"
     "IP:127.0.0.1"
 )
 
@@ -126,16 +125,11 @@ subjectAltName = @alt_names
 
 [alt_names]
 DNS.1 = $SERVICE_NAME
-DNS.2 = $SERVICE_NAME.$NAMESPACE
-DNS.3 = $SERVICE_NAME.$NAMESPACE.svc
-DNS.4 = $SERVICE_NAME.$NAMESPACE.svc.cluster.local
-DNS.5 = $SERVICE_NAME-0.$SERVICE_NAME-internal
-DNS.6 = $SERVICE_NAME-0.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local
-DNS.7 = $SERVICE_NAME-1.$SERVICE_NAME-internal
-DNS.8 = $SERVICE_NAME-1.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local
-DNS.9 = $SERVICE_NAME-2.$SERVICE_NAME-internal
-DNS.10 = $SERVICE_NAME-2.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local
-DNS.11 = localhost
+DNS.2 = $SERVICE_NAME.$NAMESPACE.svc.cluster.local
+DNS.3 = $SERVICE_NAME-active
+DNS.4 = $SERVICE_NAME-active.$NAMESPACE.svc.cluster.local
+DNS.5 = *.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local
+DNS.6 = $VAULT_ROUTE_URL
 IP.1 = 127.0.0.1
 
 [v3_ext]

@@ -8,6 +8,8 @@
   "deployment": {
     "namespace": "unsealer-vault",
     "releaseName": "unsealer-hashicorp-vault",
+    "routeName": "vault",
+    "routeUrl": "vault-unsealer-vault.apps.indelocpbmatm1058.ocpd.corp.amdocs.com",
     "helmTimeout": "10m"
   },
   "logging": {
