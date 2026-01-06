@@ -31,6 +31,9 @@ LOG_LEVEL=$(jq -r '.logging.logLevel // "INFO"' "$CONFIG_FILE")
 # Initialize logger
 initialize_logger "$LOG_DIR" "$LOG_LEVEL"
 
+# Get absolute path of log file to use after directory changes
+LOG_FILE="$(cd "$(dirname "$LOG_FILE")" && pwd)/$(basename "$LOG_FILE")"
+
 write_section_header "VAULT CLUSTER DEPLOYMENT"
 
 log_message "INFO" "Cluster Directory: $CLUSTER_DIR"
