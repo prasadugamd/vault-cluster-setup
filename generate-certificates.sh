@@ -89,7 +89,7 @@ else
     cd "$CA_DIR"
     openssl req -x509 -sha256 -days 3650 -newkey rsa:2048 -keyout ca.key -out ca.crt -nodes \
       -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$OU/CN=Vault CA" \
-      2>&1 | tee -a "$LOG_FILE"
+      >> "$LOG_FILE" 2>&1
     
     if [[ -f ca.crt && -f ca.key ]]; then
         log_message "INFO" "✓ CA certificate generated successfully at $CA_DIR"
@@ -102,7 +102,7 @@ fi
 # Step 2: Generate namespace-specific RSA private key
 log_message "INFO" "Step 2/7: Creating RSA key for namespace $NAMESPACE..."
 cd "$VAULT_CERT_DIR"
-openssl genrsa -out "$NAMESPACE-rsa.key" 2048 2>&1 | tee -a "$LOG_FILE"
+openssl genrsa -out "$NAMESPACE-rsa.key" 2048 >> "$LOG_FILE" 2>&1
 
 if [[ -f "$NAMESPACE-rsa.key" ]]; then
     log_message "INFO" "✓ RSA private key generated"
@@ -115,7 +115,7 @@ fi
 log_message "INFO" "Step 3/7: Creating certificate signing request..."
 openssl req -out "$NAMESPACE.csr" -key "$NAMESPACE-rsa.key" -new -sha256 \
   -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$OU/CN=$SERVICE_NAME.$NAMESPACE.svc.cluster.local" \
-  2>&1 | tee -a "$LOG_FILE"
+  >> "$LOG_FILE" 2>&1
 
 if [[ -f "$NAMESPACE.csr" ]]; then
     log_message "INFO" "✓ Certificate signing request created"
@@ -147,7 +147,7 @@ log_message "INFO" "✓ Extension file created"
 log_message "INFO" "Step 5/7: Signing certificate with CA..."
 openssl x509 -req -CA "$CA_DIR/ca.crt" -CAkey "$CA_DIR/ca.key" -in "$NAMESPACE.csr" -out "$NAMESPACE.crt" \
   -days 3650 -CAcreateserial -extfile "$NAMESPACE.ext" -sha256 \
-  2>&1 | tee -a "$LOG_FILE"
+  >> "$LOG_FILE" 2>&1
 
 if [[ -f "$NAMESPACE.crt" ]]; then
     log_message "INFO" "✓ Certificate signed successfully"
@@ -159,7 +159,7 @@ fi
 # Step 6: Convert certificate to P12 format
 log_message "INFO" "Step 6/7: Converting certificate to P12 format..."
 openssl pkcs12 -inkey "$NAMESPACE-rsa.key" -in "$NAMESPACE.crt" -export -out "$NAMESPACE.p12" -passout pass: \
-  2>&1 | tee -a "$LOG_FILE"
+  >> "$LOG_FILE" 2>&1
 
 if [[ -f "$NAMESPACE.p12" ]]; then
     log_message "INFO" "✓ Certificate converted to P12 format"
@@ -171,7 +171,7 @@ fi
 # Step 7: Extract private key from P12
 log_message "INFO" "Step 7/7: Extracting private key from P12..."
 openssl pkcs12 -info -in "$NAMESPACE.p12" -nodes -nocerts -passin pass: -out "$NAMESPACE.key" \
-  2>&1 | tee -a "$LOG_FILE"
+  >> "$LOG_FILE" 2>&1
 
 if [[ -f "$NAMESPACE.key" ]]; then
     log_message "INFO" "✓ Private key extracted successfully"
