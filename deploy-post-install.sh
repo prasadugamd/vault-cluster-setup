@@ -104,7 +104,7 @@ log_message "INFO" "Verifying OpenShift Route for external access..."
 # Get route name from config
 ROUTE_NAME=$(jq -r '.deployment.routeName // "vault"' "$CONFIG_FILE")
 
-ROUTE_HOST=$(kubectl get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+ROUTE_HOST=$(oc get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || true)
 
 if [[ -n "$ROUTE_HOST" ]]; then
     log_message "INFO" "✓ Vault Route is active"
@@ -118,28 +118,29 @@ fi
 # Check Vault initialization status
 log_message "INFO" "Checking Vault initialization status..."
 
-POD_NAME=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+POD_NAME=$(oc get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
 if [[ -n "$POD_NAME" ]]; then
     log_message "INFO" "Vault pod: $POD_NAME"
     
     log_message "INFO" "Vault status:"
-    kubectl exec -n "$NAMESPACE" "$POD_NAME" -- vault status 2>&1 | tee -a "$LOG_FILE" || log_message "WARN" "Vault may not be initialized yet"
+    oc exec -n "$NAMESPACE" "$POD_NAME" -- vault status 2>&1 | tee -a "$LOG_FILE" || log_message "WARN" "Vault may not be initialized yet"
 else
     log_message "WARN" "No Vault pods found"
 fi
 
 # Final verification
 log_message "INFO" "Final cluster verification..."
-kubectl get all -n "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
+oc get all -n "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
 
 write_section_header "POST-INSTALLATION COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
 log_message "INFO" ""
 log_message "INFO" "Next Steps:"
-log_message "INFO" "  1. Initialize Vault: kubectl exec -n $NAMESPACE $POD_NAME -- vault operator init"
+log_message "INFO" "  1. Initialize Vault: oc exec -n $NAMESPACE $POD_NAME -- vault operator init"
 log_message "INFO" "  2. Save unseal keys and root token securely"
-log_message "INFO" "  3. Unseal Vault: kubectl exec -n $NAMESPACE $POD_NAME -- vault operator unseal <key>"
+log_message "INFO" "  3. Unseal Vault: oc exec -n $NAMESPACE $POD_NAME -- vault operator unseal <key>"
 log_message "INFO" "  4. Access Vault UI: https://$ROUTE_HOST (if route is configured)"
 
 exit 0
+

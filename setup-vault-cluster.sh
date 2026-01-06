@@ -23,7 +23,7 @@ OPTIONS:
     -p, --skip-prereq       Skip prerequisites installation
     -d, --skip-deploy       Skip Vault cluster deployment
     -i, --skip-postinstall  Skip post-installation tasks
-    -t, --test-connection   Only test connection (kubectl cluster-info)
+    -t, --test-connection   Only test connection (oc cluster-info)
     -h, --help              Display this help message
 
 EXAMPLES:
@@ -89,7 +89,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 # Check for required commands
-for cmd in kubectl helm jq openssl; do
+for cmd in oc helm jq openssl; do
     if ! command -v $cmd &> /dev/null; then
         echo "ERROR: Required command '$cmd' is not installed"
         exit 1
@@ -122,12 +122,12 @@ echo ""
 
 # Test Kubernetes connectivity
 log_message "INFO" "Testing Kubernetes cluster connectivity..."
-if kubectl cluster-info 2>&1 | tee -a "$LOG_FILE" | head -5; then
+if oc cluster-info 2>&1 | tee -a "$LOG_FILE" | head -5; then
     log_message "INFO" "✓ Kubernetes cluster accessible"
 else
     log_message "ERROR" "✗ Cannot access Kubernetes cluster"
     log_message "ERROR" "Please verify:"
-    log_message "ERROR" "  1. kubectl is configured correctly"
+    log_message "ERROR" "  1. oc is configured correctly"
     log_message "ERROR" "  2. You have access to the target cluster"
     log_message "ERROR" "  3. Cluster is running and accessible"
     exit 1
@@ -275,7 +275,7 @@ log_message "INFO" "Vault cluster setup completed!"
 log_message "INFO" "Log file: $(get_log_file_path)"
 log_message "INFO" ""
 log_message "INFO" "Next Steps:"
-log_message "INFO" "  1. Initialize Vault: kubectl exec -n $NAMESPACE vault-0 -- vault operator init"
+log_message "INFO" "  1. Initialize Vault: oc exec -n $NAMESPACE vault-0 -- vault operator init"
 log_message "INFO" "  2. Unseal Vault nodes with the unseal keys"
 log_message "INFO" "  3. Configure authentication methods and policies"
 log_message "INFO" "  4. Test Vault connectivity"

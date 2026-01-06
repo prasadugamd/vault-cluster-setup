@@ -36,8 +36,9 @@ log_message "INFO" "Generating TLS certificates for Vault cluster"
 log_message "INFO" "Namespace: $NAMESPACE"
 log_message "INFO" "Release Name: $RELEASE_NAME"
 
-# Certificate parameters
-CERT_DIR="$BASE_PATH/vault-certs"
+# Certificate directories
+CA_DIR="$BASE_PATH/CA-certs"
+VAULT_CERT_DIR="$BASE_PATH/$NAMESPACE-certs"
 VALIDITY_DAYS=3650  # 10 years
 COUNTRY="US"
 STATE="California"
@@ -45,10 +46,13 @@ LOCALITY="San Francisco"
 ORGANIZATION="HashiCorp"
 OU="Vault"
 
-# Create certificate directory
-log_message "INFO" "Creating certificate directory: $CERT_DIR"
-mkdir -p "$CERT_DIR"
-cd "$CERT_DIR"
+# Create CA directory if it doesn't exist
+log_message "INFO" "CA directory: $CA_DIR"
+mkdir -p "$CA_DIR"
+
+# Create namespace-specific vault certificate directory
+log_message "INFO" "Creating vault certificate directory: $VAULT_CERT_DIR"
+mkdir -p "$VAULT_CERT_DIR"
 
 # Generate SANs (Subject Alternative Names)
 SERVICE_NAME="$RELEASE_NAME"
@@ -76,53 +80,57 @@ fi
 
 log_message "INFO" "OpenSSL version: $(openssl version)"
 
-# Step 1: Generate CA private key and certificate
-log_message "INFO" "Step 1/4: Generating CA private key and certificate..."
-openssl genrsa -out ca.key 4096 2>&1 | tee -a "$LOG_FILE"
-openssl req -x509 -new -nodes -key ca.key -sha256 -days "$VALIDITY_DAYS" \
-  -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$OU/CN=Vault CA" \
-  -out ca.crt 2>&1 | tee -a "$LOG_FILE"
-
-if [[ -f ca.crt && -f ca.key ]]; then
-    log_message "INFO" "✓ CA certificate generated successfully"
+# Step 1: Generate or use existing CA private key and certificate
+log_message "INFO" "Step 1/7: Checking CA certificate..."
+if [[ -f "$CA_DIR/ca.crt" && -f "$CA_DIR/ca.key" ]]; then
+    log_message "INFO" "✓ Using existing CA certificate from $CA_DIR"
 else
-    log_message "ERROR" "✗ Failed to generate CA certificate"
+    log_message "INFO" "Generating new CA private key and certificate..."
+    cd "$CA_DIR"
+    openssl req -x509 -sha256 -days 3650 -newkey rsa:2048 -keyout ca.key -out ca.crt -nodes \
+      -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$OU/CN=Vault CA" \
+      2>&1 | tee -a "$LOG_FILE"
+    
+    if [[ -f ca.crt && -f ca.key ]]; then
+        log_message "INFO" "✓ CA certificate generated successfully at $CA_DIR"
+    else
+        log_message "ERROR" "✗ Failed to generate CA certificate"
+        exit 1
+    fi
+fi
+
+# Step 2: Generate namespace-specific RSA private key
+log_message "INFO" "Step 2/7: Creating RSA key for namespace $NAMESPACE..."
+cd "$VAULT_CERT_DIR"
+openssl genrsa -out "$NAMESPACE-rsa.key" 2048 2>&1 | tee -a "$LOG_FILE"
+
+if [[ -f "$NAMESPACE-rsa.key" ]]; then
+    log_message "INFO" "✓ RSA private key generated"
+else
+    log_message "ERROR" "✗ Failed to generate RSA key"
     exit 1
 fi
 
-# Step 2: Generate server private key
-log_message "INFO" "Step 2/4: Generating server private key..."
-openssl genrsa -out vault.key 4096 2>&1 | tee -a "$LOG_FILE"
+# Step 3: Create the CSR
+log_message "INFO" "Step 3/7: Creating certificate signing request..."
+openssl req -out "$NAMESPACE.csr" -key "$NAMESPACE-rsa.key" -new -sha256 \
+  -subj "/C=$COUNTRY/ST=$STATE/L=$LOCALITY/O=$ORGANIZATION/OU=$OU/CN=$SERVICE_NAME.$NAMESPACE.svc.cluster.local" \
+  2>&1 | tee -a "$LOG_FILE"
 
-if [[ -f vault.key ]]; then
-    log_message "INFO" "✓ Server private key generated"
+if [[ -f "$NAMESPACE.csr" ]]; then
+    log_message "INFO" "✓ Certificate signing request created"
 else
-    log_message "ERROR" "✗ Failed to generate server key"
+    log_message "ERROR" "✗ Failed to create CSR"
     exit 1
 fi
 
-# Step 3: Create OpenSSL config for SANs
-log_message "INFO" "Step 3/4: Creating certificate signing request with SANs..."
+# Step 4: Create the extension file for SANs
+log_message "INFO" "Step 4/7: Creating certificate extension file with SANs..."
 
-cat > openssl.cnf << EOF
-[req]
-default_bits = 4096
-prompt = no
-default_md = sha256
-req_extensions = req_ext
-distinguished_name = dn
-
-[dn]
-C = $COUNTRY
-ST = $STATE
-L = $LOCALITY
-O = $ORGANIZATION
-OU = $OU
-CN = $SERVICE_NAME.$NAMESPACE.svc.cluster.local
-
-[req_ext]
+cat > "$NAMESPACE.ext" << EOF
+authorityKeyIdentifier=keyid,issuer
+basicConstraints = CA:FALSE
 subjectAltName = @alt_names
-
 [alt_names]
 DNS.1 = $SERVICE_NAME
 DNS.2 = $SERVICE_NAME.$NAMESPACE.svc.cluster.local
@@ -131,73 +139,96 @@ DNS.4 = $SERVICE_NAME-active.$NAMESPACE.svc.cluster.local
 DNS.5 = *.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local
 DNS.6 = $VAULT_ROUTE_URL
 IP.1 = 127.0.0.1
-
-[v3_ext]
-authorityKeyIdentifier=keyid,issuer:always
-basicConstraints=CA:FALSE
-keyUsage=keyEncipherment,dataEncipherment,digitalSignature
-extendedKeyUsage=serverAuth,clientAuth
-subjectAltName=@alt_names
 EOF
 
-# Generate CSR
-openssl req -new -key vault.key -out vault.csr -config openssl.cnf 2>&1 | tee -a "$LOG_FILE"
+log_message "INFO" "✓ Extension file created"
 
-if [[ -f vault.csr ]]; then
-    log_message "INFO" "✓ Certificate signing request created"
-else
-    log_message "ERROR" "✗ Failed to create CSR"
-    exit 1
-fi
-
-# Step 4: Sign the certificate with CA
-log_message "INFO" "Step 4/4: Signing server certificate with CA..."
-openssl x509 -req -in vault.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
-  -out vault.crt -days "$VALIDITY_DAYS" -sha256 -extensions v3_ext -extfile openssl.cnf \
+# Step 5: Sign the certificate with CA
+log_message "INFO" "Step 5/7: Signing certificate with CA..."
+openssl x509 -req -CA "$CA_DIR/ca.crt" -CAkey "$CA_DIR/ca.key" -in "$NAMESPACE.csr" -out "$NAMESPACE.crt" \
+  -days 3650 -CAcreateserial -extfile "$NAMESPACE.ext" -sha256 \
   2>&1 | tee -a "$LOG_FILE"
 
-if [[ -f vault.crt ]]; then
-    log_message "INFO" "✓ Server certificate signed successfully"
+if [[ -f "$NAMESPACE.crt" ]]; then
+    log_message "INFO" "✓ Certificate signed successfully"
 else
     log_message "ERROR" "✗ Failed to sign certificate"
     exit 1
 fi
 
+# Step 6: Convert certificate to P12 format
+log_message "INFO" "Step 6/7: Converting certificate to P12 format..."
+openssl pkcs12 -inkey "$NAMESPACE-rsa.key" -in "$NAMESPACE.crt" -export -out "$NAMESPACE.p12" -passout pass: \
+  2>&1 | tee -a "$LOG_FILE"
+
+if [[ -f "$NAMESPACE.p12" ]]; then
+    log_message "INFO" "✓ Certificate converted to P12 format"
+else
+    log_message "ERROR" "✗ Failed to convert to P12"
+    exit 1
+fi
+
+# Step 7: Extract private key from P12
+log_message "INFO" "Step 7/7: Extracting private key from P12..."
+openssl pkcs12 -info -in "$NAMESPACE.p12" -nodes -nocerts -passin pass: -out "$NAMESPACE.key" \
+  2>&1 | tee -a "$LOG_FILE"
+
+if [[ -f "$NAMESPACE.key" ]]; then
+    log_message "INFO" "✓ Private key extracted successfully"
+else
+    log_message "ERROR" "✗ Failed to extract private key"
+    exit 1
+fi
+
 # Verify certificate
 log_message "INFO" "Verifying certificate..."
-if openssl verify -CAfile ca.crt vault.crt 2>&1 | grep -q "OK"; then
+if openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" 2>&1 | grep -q "OK"; then
     log_message "INFO" "✓ Certificate verification passed"
-    openssl verify -CAfile ca.crt vault.crt 2>&1 | tee -a "$LOG_FILE"
+    openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" 2>&1 | tee -a "$LOG_FILE"
 else
     log_message "WARN" "Certificate verification warning"
-    openssl verify -CAfile ca.crt vault.crt 2>&1 | tee -a "$LOG_FILE"
+    openssl verify -CAfile "$CA_DIR/ca.crt" "$NAMESPACE.crt" 2>&1 | tee -a "$LOG_FILE"
 fi
 
 # Display certificate details
 log_message "INFO" "Certificate details:"
-openssl x509 -in vault.crt -text -noout | grep -A 1 "Subject:" | tee -a "$LOG_FILE"
+openssl x509 -in "$NAMESPACE.crt" -text -noout | grep -A 1 "Subject:" | tee -a "$LOG_FILE"
 
 # List generated files
-log_message "INFO" "Generated certificate files:"
-ls -lh "$CERT_DIR" | tee -a "$LOG_FILE"
+log_message "INFO" "Generated vault certificate files:"
+ls -lh "$VAULT_CERT_DIR" | tee -a "$LOG_FILE"
 
 # Create Kubernetes TLS secret
 log_message "INFO" "Creating Kubernetes TLS secret..."
 
 # Create namespace if it doesn't exist
-kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>&1 | tee -a "$LOG_FILE"
+oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f - 2>&1 | tee -a "$LOG_FILE"
 
 # Delete existing secret if present
-kubectl delete secret vault-tls -n "$NAMESPACE" --ignore-not-found 2>&1 | tee -a "$LOG_FILE"
+oc delete secret vault-server-tls -n "$NAMESPACE" --ignore-not-found 2>&1 | tee -a "$LOG_FILE"
 
-# Create new secret
-kubectl create secret generic vault-tls -n "$NAMESPACE" \
-  --from-file=ca.crt="$CERT_DIR/ca.crt" \
-  --from-file=tls.crt="$CERT_DIR/vault.crt" \
-  --from-file=tls.key="$CERT_DIR/vault.key" \
-  --from-file=vault.crt="$CERT_DIR/vault.crt" \
-  --from-file=vault.key="$CERT_DIR/vault.key" \
-  2>&1 | tee -a "$LOG_FILE"
+# Prepare certificate files for vault-1 namespace
+if [[ "$NAMESPACE" == "vault-1" ]]; then
+    log_message "INFO" "Preparing certificate files for vault-1 namespace..."
+    cd "$VAULT_CERT_DIR"
+    cp "$NAMESPACE.key" vault.key
+    cp "$NAMESPACE.crt" vault.crt
+    log_message "INFO" "✓ Certificate files copied for vault-1"
+    
+    # Create new secret for vault-1
+    oc create secret generic vault-server-tls -n "$NAMESPACE" \
+      --from-file=vault.key="$VAULT_CERT_DIR/vault.key" \
+      --from-file=vault.crt="$VAULT_CERT_DIR/vault.crt" \
+      --from-file=vault.ca="$CA_DIR/ca.crt" \
+      2>&1 | tee -a "$LOG_FILE"
+else
+    # Create new secret for other namespaces using namespace-specific files
+    oc create secret generic vault-server-tls -n "$NAMESPACE" \
+      --from-file=vault.key="$VAULT_CERT_DIR/$NAMESPACE.key" \
+      --from-file=vault.crt="$VAULT_CERT_DIR/$NAMESPACE.crt" \
+      --from-file=vault.ca="$CA_DIR/ca.crt" \
+      2>&1 | tee -a "$LOG_FILE"
+fi
 
 if [[ $? -eq 0 ]]; then
     log_message "INFO" "✓ Kubernetes TLS secret created"
@@ -208,30 +239,23 @@ fi
 
 # Verify secret
 log_message "INFO" "Verifying Kubernetes secret..."
-kubectl get secret vault-tls -n "$NAMESPACE" -o jsonpath='{.metadata.name}' 2>&1 | tee -a "$LOG_FILE"
+oc get secret vault-server-tls -n "$NAMESPACE" -o jsonpath='{.metadata.name}' 2>&1 | tee -a "$LOG_FILE"
 log_message "INFO" "Secret created successfully"
 
-# Copy certificates to Vault cluster directory
-CLUSTER_PATH="$BASE_PATH/$CLUSTER_DIR"
-log_message "INFO" "Copying certificates to cluster directory..."
-mkdir -p "$CLUSTER_PATH/certs"
-cp "$CERT_DIR"/*.crt "$CERT_DIR"/*.key "$CLUSTER_PATH/certs/" 2>&1 | tee -a "$LOG_FILE"
-
-if [[ $? -eq 0 ]]; then
-    log_message "INFO" "✓ Certificates copied to cluster directory"
-else
-    log_message "WARN" "Could not copy to cluster directory (may not exist yet)"
-fi
-
 # Summary
-log_message "INFO" "Certificate files are available at: $CERT_DIR"
-log_message "INFO" "  - CA Certificate: $CERT_DIR/ca.crt"
-log_message "INFO" "  - Server Certificate: $CERT_DIR/vault.crt"
-log_message "INFO" "  - Server Key: $CERT_DIR/vault.key"
+log_message "INFO" "CA certificate files are available at: $CA_DIR"
+log_message "INFO" "  - CA Certificate: $CA_DIR/ca.crt"
+log_message "INFO" "  - CA Key: $CA_DIR/ca.key"
+log_message "INFO" "Vault certificate files are available at: $VAULT_CERT_DIR"
+log_message "INFO" "  - RSA Key: $VAULT_CERT_DIR/$NAMESPACE-rsa.key"
+log_message "INFO" "  - CSR: $VAULT_CERT_DIR/$NAMESPACE.csr"
+log_message "INFO" "  - Certificate: $VAULT_CERT_DIR/$NAMESPACE.crt"
+log_message "INFO" "  - Private Key: $VAULT_CERT_DIR/$NAMESPACE.key"
+log_message "INFO" "  - P12: $VAULT_CERT_DIR/$NAMESPACE.p12"
 
 write_section_header "CERTIFICATE GENERATION COMPLETED"
 log_message "INFO" "TLS certificates generated successfully!"
-log_message "INFO" "Kubernetes secret 'vault-tls' created in namespace '$NAMESPACE'"
+log_message "INFO" "Kubernetes secret 'vault-server-tls' created in namespace '$NAMESPACE'"
 log_message "INFO" "Log file: $(get_log_file_path)"
 log_message "INFO" ""
 log_message "INFO" "Next: Run deploy-prerequisites.sh to continue setup"

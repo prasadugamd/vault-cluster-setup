@@ -59,7 +59,7 @@ if [[ -f "$PREREQ_PATH/Chart.yaml" ]]; then
     
     # Create namespace if not exists
     log_message "INFO" "Creating namespace: $NAMESPACE"
-    kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>&1 | tee -a "$LOG_FILE"
+    oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f - 2>&1 | tee -a "$LOG_FILE"
     
     # Create OpenShift Route for Vault (before prerequisites installation)
     log_message "INFO" "Creating OpenShift Route for Vault external access..."
@@ -76,7 +76,7 @@ if [[ -f "$PREREQ_PATH/Chart.yaml" ]]; then
     # Create route YAML and apply
     if [[ -n "$ROUTE_URL" ]]; then
         # Create route with custom host
-        kubectl apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
+        oc apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -100,7 +100,7 @@ spec:
 EOF
     else
         # Create route without custom host (OpenShift will assign)
-        kubectl apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
+        oc apply -f - 2>&1 | tee -a "$LOG_FILE" <<EOF
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -127,24 +127,30 @@ EOF
         log_message "INFO" "✓ OpenShift Route created successfully"
         
         # Get route details (may not have hostname yet until service exists)
-        ROUTE_HOST=$(kubectl get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route created, hostname will be assigned when service is available")
+        ROUTE_HOST=$(oc get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route created, hostname will be assigned when service is available")
         log_message "INFO" "Route: $ROUTE_HOST"
     else
         log_message "WARN" "Route creation failed or already exists (will retry after service creation)"
     fi
     
-    # Check if values.yaml exists
+    # Check for values files
     VALUES_FLAG=""
-    if [[ -f "$PREREQ_PATH/values.yaml" ]]; then
-        log_message "INFO" "Using custom values.yaml"
-        VALUES_FLAG="-f $PREREQ_PATH/values.yaml"
+    if [[ -f "$PREREQ_PATH/custom-values.yaml" ]]; then
+        log_message "INFO" "Found custom-values.yaml"
+        VALUES_FLAG="-f $PREREQ_PATH/custom-values.yaml"
+    fi
+    
+    if [[ -z "$VALUES_FLAG" ]]; then
+        log_message "WARN" "No values files found, using default Helm chart values"
+    else
+        log_message "INFO" "Using values files:$VALUES_FLAG"
     fi
     
     # Install prerequisites using Helm
     log_message "INFO" "Installing prerequisites with Helm..."
     cd "$PREREQ_PATH"
     
-    if helm upgrade --install vault-prereq . --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait 2>&1 | tee -a "$LOG_FILE"; then
+    if helm upgrade --install fndsec-hashicorp-vault-helm-pre-requisite . --namespace "ms360-platform-crd" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait 2>&1 | tee -a "$LOG_FILE"; then
         log_message "INFO" "✓ Prerequisites installed successfully"
     else
         log_message "ERROR" "✗ Prerequisites installation failed"
@@ -176,9 +182,10 @@ fi
 
 # Verify deployment
 log_message "INFO" "Verifying prerequisite deployment..."
-kubectl get all -n "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
+oc get all -n "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
 
 write_section_header "PREREQUISITES DEPLOYMENT COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
 
 exit 0
+

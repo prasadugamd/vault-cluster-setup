@@ -58,31 +58,64 @@ if [[ -f "$CLUSTER_PATH/Chart.yaml" ]]; then
     log_message "INFO" "Helm chart detected"
     
     # Ensure namespace exists
-    log_message "INFO" "Ensuring namespace exists: $NAMESPACE"
-    kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>&1 | tee -a "$LOG_FILE"
-    
-    # Check for certificates
-    log_message "INFO" "Checking for certificates..."
-    if find "$CLUSTER_PATH" -type f \( -name '*.crt' -o -name '*.pem' -o -name '*.key' \) | grep -q .; then
-        log_message "INFO" "Certificates found:"
-        find "$CLUSTER_PATH" -type f \( -name '*.crt' -o -name '*.pem' -o -name '*.key' \) | tee -a "$LOG_FILE"
-        
-        # Create TLS secret if certificates exist
-        CERT_DIR="$CLUSTER_PATH/certs"
-        if [[ -d "$CERT_DIR" ]]; then
-            log_message "INFO" "Creating/updating TLS secret from certificates..."
-            kubectl create secret generic vault-tls -n "$NAMESPACE" \
-                --from-file="$CERT_DIR" \
-                --dry-run=client -o yaml | kubectl apply -f - 2>&1 | tee -a "$LOG_FILE"
-            log_message "INFO" "TLS secret created/updated"
+    log_message "INFO" "Checking if namespace exists: $NAMESPACE"
+    if oc get namespace "$NAMESPACE" &>/dev/null; then
+        log_message "INFO" "✓ Namespace $NAMESPACE already exists"
+    else
+        log_message "INFO" "Creating namespace: $NAMESPACE"
+        oc create namespace "$NAMESPACE" 2>&1 | tee -a "$LOG_FILE"
+        if [[ $? -eq 0 ]]; then
+            log_message "INFO" "✓ Namespace created successfully"
+        else
+            log_message "ERROR" "✗ Failed to create namespace"
+            exit 1
         fi
     fi
     
-    # Check for values.yaml
+    # Check for certificates
+    log_message "INFO" "Checking for certificates..."
+    CERT_DIR="$BASE_PATH/$NAMESPACE-certs"
+    if [[ -d "$CERT_DIR" ]]; then
+        log_message "INFO" "Certificate directory found: $CERT_DIR"
+        log_message "INFO" "Certificates found:"
+        ls -la "$CERT_DIR" | tee -a "$LOG_FILE"
+        
+        # Create TLS secret if certificates exist
+        log_message "INFO" "Creating/updating TLS secret from certificates..."
+        oc create secret generic vault-tls -n "$NAMESPACE" \
+            --from-file=ca.crt="$BASE_PATH/CA-certs/ca.crt" \
+            --from-file=tls.crt="$CERT_DIR/vault.crt" \
+            --from-file=tls.key="$CERT_DIR/vault.key" \
+            --from-file=vault.crt="$CERT_DIR/vault.crt" \
+            --from-file=vault.key="$CERT_DIR/vault.key" \
+            --dry-run=client -o yaml | oc apply -f - 2>&1 | tee -a "$LOG_FILE"
+        log_message "INFO" "TLS secret created/updated"
+    else
+        log_message "WARN" "Certificate directory not found: $CERT_DIR"
+        log_message "WARN" "Run generate-certificates.sh first to create certificates"
+    fi
+    
+    # Check for values files
     VALUES_FLAG=""
+    if [[ -f "$CLUSTER_PATH/custom-values.yaml" ]]; then
+        log_message "INFO" "Found custom-values.yaml"
+        VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/custom-values.yaml"
+    fi
+    
+    if [[ -f "$CLUSTER_PATH/values.openshift.yaml" ]]; then
+        log_message "INFO" "Found values.openshift.yaml"
+        VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/values.openshift.yaml"
+    fi
+    
     if [[ -f "$CLUSTER_PATH/values.yaml" ]]; then
-        log_message "INFO" "Using custom values.yaml"
-        VALUES_FLAG="-f $CLUSTER_PATH/values.yaml"
+        log_message "INFO" "Found values.yaml"
+        VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/values.yaml"
+    fi
+    
+    if [[ -z "$VALUES_FLAG" ]]; then
+        log_message "WARN" "No values files found, using default Helm chart values"
+    else
+        log_message "INFO" "Using values files:$VALUES_FLAG"
     fi
     
     # Deploy Vault cluster
@@ -104,7 +137,7 @@ fi
 
 # Wait for pods to be ready
 log_message "INFO" "Waiting for Vault pods to be ready..."
-if kubectl wait --for=condition=Ready pods -l app.kubernetes.io/name=vault -n "$NAMESPACE" --timeout=5m 2>&1 | tee -a "$LOG_FILE"; then
+if oc wait --for=condition=Ready pods -l app.kubernetes.io/name=vault -n "$NAMESPACE" --timeout=5m 2>&1 | tee -a "$LOG_FILE"; then
     log_message "INFO" "✓ Vault pods are ready"
 else
     log_message "WARN" "Pods may still be initializing..."
@@ -112,18 +145,19 @@ fi
 
 # Get pods status
 log_message "INFO" "Vault pods status:"
-kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide 2>&1 | tee -a "$LOG_FILE"
+oc get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide 2>&1 | tee -a "$LOG_FILE"
 
 # Get services
 log_message "INFO" "Vault services:"
-kubectl get svc -n "$NAMESPACE" -l app.kubernetes.io/name=vault 2>&1 | tee -a "$LOG_FILE"
+oc get svc -n "$NAMESPACE" -l app.kubernetes.io/name=vault 2>&1 | tee -a "$LOG_FILE"
 
 write_section_header "VAULT CLUSTER DEPLOYMENT COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
 log_message "INFO" ""
 log_message "INFO" "Next steps:"
 log_message "INFO" "  1. Run deploy-post-install.sh for post-installation tasks"
-log_message "INFO" "  2. Initialize Vault: kubectl exec -n $NAMESPACE vault-0 -- vault operator init"
+log_message "INFO" "  2. Initialize Vault: oc exec -n $NAMESPACE vault-0 -- vault operator init"
 log_message "INFO" "  3. Unseal Vault nodes with the unseal keys"
 
 exit 0
+
