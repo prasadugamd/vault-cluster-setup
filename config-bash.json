@@ -6,8 +6,8 @@
     "postInstall": "hashicorp-vault-post-install-helm-1.1.6"
   },
   "deployment": {
-    "namespace": "vault",
-    "releaseName": "vault",
+    "namespace": "ms360-platform-crd",
+    "releaseName": "fndsec-hashicorp-vault-helm-pre-requisite",
     "helmTimeout": "10m"
   },
   "logging": {
