@@ -143,9 +143,28 @@ fi
 # Track deployment steps
 DEPLOYMENT_STEPS=()
 
-# Step 0: Generate Certificates
+# Step 0: Create Namespace and Route
+write_section_header "STEP 0: CREATING NAMESPACE AND ROUTE"
+
+if [[ -x "$SCRIPT_DIR/create-namespace-route.sh" ]]; then
+    if bash "$SCRIPT_DIR/create-namespace-route.sh" "$CONFIG_FILE"; then
+        log_message "INFO" "✓ Namespace and route created successfully"
+        DEPLOYMENT_STEPS+=("Namespace & Route: SUCCESS")
+    else
+        log_message "ERROR" "✗ Namespace and route creation failed"
+        DEPLOYMENT_STEPS+=("Namespace & Route: FAILED")
+        log_message "ERROR" "Stopping deployment due to namespace/route creation failure"
+        exit 1
+    fi
+else
+    log_message "ERROR" "Namespace/route script not found: $SCRIPT_DIR/create-namespace-route.sh"
+    exit 1
+fi
+echo ""
+
+# Step 1: Generate Certificates
 if [[ "$SKIP_CERTS" == false ]]; then
-    write_section_header "STEP 0: GENERATING TLS CERTIFICATES"
+    write_section_header "STEP 1: GENERATING TLS CERTIFICATES"
     
     if [[ -x "$SCRIPT_DIR/generate-certificates.sh" ]]; then
         if bash "$SCRIPT_DIR/generate-certificates.sh" "$CONFIG_FILE"; then
@@ -167,9 +186,9 @@ else
     DEPLOYMENT_STEPS+=("Certificates: SKIPPED")
 fi
 
-# Step 1: Deploy Prerequisites
+# Step 2: Deploy Prerequisites
 if [[ "$SKIP_PREREQ" == false ]]; then
-    write_section_header "STEP 1: DEPLOYING PREREQUISITES"
+    write_section_header "STEP 2: DEPLOYING PREREQUISITES"
     
     if [[ -x "$SCRIPT_DIR/deploy-prerequisites.sh" ]]; then
         if bash "$SCRIPT_DIR/deploy-prerequisites.sh" "$CONFIG_FILE"; then
@@ -191,9 +210,9 @@ else
     DEPLOYMENT_STEPS+=("Prerequisites: SKIPPED")
 fi
 
-# Step 2: Deploy Vault Cluster
+# Step 3: Deploy Vault Cluster
 if [[ "$SKIP_DEPLOY" == false ]]; then
-    write_section_header "STEP 2: DEPLOYING VAULT CLUSTER"
+    write_section_header "STEP 3: DEPLOYING VAULT CLUSTER"
     
     if [[ -x "$SCRIPT_DIR/deploy-vault-cluster.sh" ]]; then
         if bash "$SCRIPT_DIR/deploy-vault-cluster.sh" "$CONFIG_FILE"; then
@@ -215,9 +234,9 @@ else
     DEPLOYMENT_STEPS+=("Vault Cluster: SKIPPED")
 fi
 
-# Step 3: Post-Installation
+# Step 4: Post-Installation
 if [[ "$SKIP_POSTINSTALL" == false ]]; then
-    write_section_header "STEP 3: POST-INSTALLATION CONFIGURATION"
+    write_section_header "STEP 4: POST-INSTALLATION CONFIGURATION"
     
     if [[ -x "$SCRIPT_DIR/deploy-post-install.sh" ]]; then
         if bash "$SCRIPT_DIR/deploy-post-install.sh" "$CONFIG_FILE"; then

@@ -22,7 +22,6 @@ fi
 # Parse configuration using jq
 BASE_PATH=$(jq -r '.directories.basePath // "/jenkins_home/vault-cluster-setup"' "$CONFIG_FILE" 2>/dev/null || echo "/jenkins_home/vault-cluster-setup")
 PREREQ_DIR=$(jq -r '.directories.prerequisite' "$CONFIG_FILE")
-NAMESPACE=$(jq -r '.deployment.namespace' "$CONFIG_FILE")
 RELEASE_NAME=$(jq -r '.deployment.releaseName' "$CONFIG_FILE")
 HELM_TIMEOUT=$(jq -r '.deployment.helmTimeout // "10m"' "$CONFIG_FILE")
 LOG_DIR=$(jq -r '.logging.logDir' "$CONFIG_FILE")
@@ -38,7 +37,6 @@ write_section_header "VAULT HELM PREREQUISITES DEPLOYMENT"
 
 log_message "INFO" "Base Path: $BASE_PATH"
 log_message "INFO" "Prerequisite Directory: $PREREQ_DIR"
-log_message "INFO" "Namespace: $NAMESPACE"
 
 # Navigate to prerequisite directory
 PREREQ_PATH="$BASE_PATH/$PREREQ_DIR"
@@ -55,85 +53,19 @@ log_message "INFO" "Prerequisite directory found"
 log_message "INFO" "Listing prerequisite directory contents..."
 ls -la "$PREREQ_PATH" | tee -a "$LOG_FILE"
 
-# Check for Helm chart
+# Check for Helm chart (directory or packaged .tgz)
 log_message "INFO" "Checking for Helm chart..."
-if [[ -f "$PREREQ_PATH/Chart.yaml" ]]; then
-    log_message "INFO" "Helm chart detected in prerequisite directory"
-    
-    # Create namespace if not exists
-    log_message "INFO" "Creating namespace: $NAMESPACE"
-    oc create namespace "$NAMESPACE" --dry-run=client -o yaml | oc apply -f - >> "$LOG_FILE" 2>&1
-    
-    # Create OpenShift Route for Vault (before prerequisites installation)
-    log_message "INFO" "Creating OpenShift Route for Vault external access..."
-    
-    # Get route configuration from config file
-    ROUTE_NAME=$(jq -r '.deployment.routeName // "vault"' "$CONFIG_FILE")
-    ROUTE_URL=$(jq -r '.deployment.routeUrl // ""' "$CONFIG_FILE")
-    
-    log_message "INFO" "Route name: $ROUTE_NAME"
-    if [[ -n "$ROUTE_URL" ]]; then
-        log_message "INFO" "Route URL: $ROUTE_URL"
-    fi
-    
-    # Create route YAML and apply
-    if [[ -n "$ROUTE_URL" ]]; then
-        # Create route with custom host
-        oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: $ROUTE_NAME
-  namespace: $NAMESPACE
-  labels:
-    app.kubernetes.io/instance: $RELEASE_NAME
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: vault
-spec:
-  host: $ROUTE_URL
-  to:
-    kind: Service
-    name: vault-active
-    weight: 100
-  port:
-    targetPort: 8200
-  tls:
-    termination: passthrough
-  wildcardPolicy: None
-EOF
+
+# Find .tgz chart package or Chart.yaml
+TGZ_CHART=$(find "$PREREQ_PATH" -maxdepth 1 -type f -name "*.tgz" | head -1)
+
+if [[ -f "$PREREQ_PATH/Chart.yaml" ]] || [[ -n "$TGZ_CHART" ]]; then
+    if [[ -n "$TGZ_CHART" ]]; then
+        log_message "INFO" "Packaged Helm chart detected: $(basename "$TGZ_CHART")"
+        CHART_PATH="$TGZ_CHART"
     else
-        # Create route without custom host (OpenShift will assign)
-        oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: $ROUTE_NAME
-  namespace: $NAMESPACE
-  labels:
-    app.kubernetes.io/instance: $RELEASE_NAME
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: vault
-spec:
-  to:
-    kind: Service
-    name: vault-active
-    weight: 100
-  port:
-    targetPort: 8200
-  tls:
-    termination: passthrough
-  wildcardPolicy: None
-EOF
-    fi
-    
-    if [[ $? -eq 0 ]]; then
-        log_message "INFO" "✓ OpenShift Route created successfully"
-        
-        # Get route details (may not have hostname yet until service exists)
-        ROUTE_HOST=$(oc get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route created, hostname will be assigned when service is available")
-        log_message "INFO" "Route: $ROUTE_HOST"
-    else
-        log_message "WARN" "Route creation failed or already exists (will retry after service creation)"
+        log_message "INFO" "Helm chart directory detected"
+        CHART_PATH="."
     fi
     
     # Check for values files
@@ -153,7 +85,7 @@ EOF
     log_message "INFO" "Installing prerequisites with Helm..."
     cd "$PREREQ_PATH"
     
-    if helm upgrade --install fndsec-hashicorp-vault-helm-pre-requisite . --namespace "ms360-platform-crd" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+    if helm upgrade --install fndsec-hashicorp-vault-helm-pre-requisite "$CHART_PATH" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Prerequisites installed successfully"
     else
         log_message "ERROR" "✗ Prerequisites installation failed"
@@ -185,7 +117,7 @@ fi
 
 # Verify deployment
 log_message "INFO" "Verifying prerequisite deployment..."
-oc get all -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
+oc get all >> "$LOG_FILE" 2>&1
 
 write_section_header "PREREQUISITES DEPLOYMENT COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
