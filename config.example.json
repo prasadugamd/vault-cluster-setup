@@ -3,7 +3,7 @@
     "host": "ilceatm137",
     "username": "jenkins",
     "password": "Unix11!",
-    "basePath": "/jenkins/jenkins/PRASA"
+    "basePath": "/jenkins_home/vault-cluster-setup"
   },
   "directories": {
     "prerequisite": "hashicorp-vault-helm-pre-requisite",

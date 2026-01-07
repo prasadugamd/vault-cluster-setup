@@ -99,7 +99,7 @@ done
 # Parse configuration
 NAMESPACE=$(jq -r '.deployment.namespace' "$CONFIG_FILE")
 RELEASE_NAME=$(jq -r '.deployment.releaseName' "$CONFIG_FILE")
-BASE_PATH=$(jq -r '.directories.basePath // "/jenkins/jenkins/PRASA"' "$CONFIG_FILE" 2>/dev/null || echo "/jenkins/jenkins/PRASA")
+BASE_PATH=$(jq -r '.directories.basePath // "/jenkins_home/vault-cluster-setup"' "$CONFIG_FILE" 2>/dev/null || echo "/jenkins_home/vault-cluster-setup")
 LOG_DIR=$(jq -r '.logging.logDir' "$CONFIG_FILE")
 LOG_LEVEL=$(jq -r '.logging.logLevel // "INFO"' "$CONFIG_FILE")
 

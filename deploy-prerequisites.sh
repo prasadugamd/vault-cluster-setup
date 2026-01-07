@@ -20,7 +20,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 # Parse configuration using jq
-BASE_PATH=$(jq -r '.directories.basePath // "/jenkins/jenkins/PRASA"' "$CONFIG_FILE" 2>/dev/null || echo "/jenkins/jenkins/PRASA")
+BASE_PATH=$(jq -r '.directories.basePath // "/jenkins_home/vault-cluster-setup"' "$CONFIG_FILE" 2>/dev/null || echo "/jenkins_home/vault-cluster-setup")
 PREREQ_DIR=$(jq -r '.directories.prerequisite' "$CONFIG_FILE")
 NAMESPACE=$(jq -r '.deployment.namespace' "$CONFIG_FILE")
 RELEASE_NAME=$(jq -r '.deployment.releaseName' "$CONFIG_FILE")
