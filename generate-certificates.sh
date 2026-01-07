@@ -64,11 +64,11 @@ SERVICE_NAME="$RELEASE_NAME"
 VAULT_ROUTE_URL=$(jq -r '.deployment.routeUrl // "vault-'"$NAMESPACE"'.apps.cluster.domain.com"' "$CONFIG_FILE")
 
 SANS=(
-    "DNS:$SERVICE_NAME"
-    "DNS:$SERVICE_NAME.$NAMESPACE.svc.cluster.local"
-    "DNS:$SERVICE_NAME-active"
-    "DNS:$SERVICE_NAME-active.$NAMESPACE.svc.cluster.local"
-    "DNS:*.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local"
+    "DNS:vault"
+    "DNS:vault.$NAMESPACE.svc.cluster.local"
+    "DNS:vault-active"
+    "DNS:vault-active.$NAMESPACE.svc.cluster.local"
+    "DNS:*.vault-internal.$NAMESPACE.svc.cluster.local"
     "DNS:$VAULT_ROUTE_URL"
     "IP:127.0.0.1"
 )
@@ -135,11 +135,11 @@ authorityKeyIdentifier=keyid,issuer
 basicConstraints = CA:FALSE
 subjectAltName = @alt_names
 [alt_names]
-DNS.1 = $SERVICE_NAME
-DNS.2 = $SERVICE_NAME.$NAMESPACE.svc.cluster.local
-DNS.3 = $SERVICE_NAME-active
-DNS.4 = $SERVICE_NAME-active.$NAMESPACE.svc.cluster.local
-DNS.5 = *.$SERVICE_NAME-internal.$NAMESPACE.svc.cluster.local
+DNS.1 = vault.$NAMESPACE.svc.cluster.local
+DNS.2 = *.vault-internal.$NAMESPACE.svc.cluster.local
+DNS.3 = vault-active.$NAMESPACE.svc.cluster.local
+DNS.4 = vault
+DNS.5 = vault-active
 DNS.6 = $VAULT_ROUTE_URL
 IP.1 = 127.0.0.1
 EOF
