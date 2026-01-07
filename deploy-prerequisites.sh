@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/modules/logger.sh"
 
 # Default config file
-CONFIG_FILE="${1:-config.json}"
+CONFIG_FILE="${1:-config-bash.json}"
 
 # Check if config file exists
 if [[ ! -f "$CONFIG_FILE" ]]; then
