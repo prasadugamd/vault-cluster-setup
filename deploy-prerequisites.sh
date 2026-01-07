@@ -27,6 +27,9 @@ HELM_TIMEOUT=$(jq -r '.deployment.helmTimeout // "10m"' "$CONFIG_FILE")
 LOG_DIR=$(jq -r '.logging.logDir' "$CONFIG_FILE")
 LOG_LEVEL=$(jq -r '.logging.logLevel // "INFO"' "$CONFIG_FILE")
 
+# Hardcoded namespace for prerequisites to avoid conflicts
+PREREQ_NAMESPACE="ms360-platform-crd"
+
 # Initialize logger
 initialize_logger "$LOG_DIR" "$LOG_LEVEL"
 
@@ -37,6 +40,7 @@ write_section_header "VAULT HELM PREREQUISITES DEPLOYMENT"
 
 log_message "INFO" "Base Path: $BASE_PATH"
 log_message "INFO" "Prerequisite Directory: $PREREQ_DIR"
+log_message "INFO" "Target Namespace: $PREREQ_NAMESPACE"
 
 # Navigate to prerequisite directory
 PREREQ_PATH="$BASE_PATH/$PREREQ_DIR"
@@ -85,7 +89,7 @@ if [[ -f "$PREREQ_PATH/Chart.yaml" ]] || [[ -n "$TGZ_CHART" ]]; then
     log_message "INFO" "Installing prerequisites with Helm..."
     cd "$PREREQ_PATH"
     
-    if helm upgrade --install fndsec-hashicorp-vault-helm-pre-requisite "$CHART_PATH" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+    if helm upgrade --install fndsec-hashicorp-vault-helm-pre-requisite "$CHART_PATH" --namespace "$PREREQ_NAMESPACE" --create-namespace $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Prerequisites installed successfully"
     else
         log_message "ERROR" "✗ Prerequisites installation failed"
@@ -117,7 +121,7 @@ fi
 
 # Verify deployment
 log_message "INFO" "Verifying prerequisite deployment..."
-oc get all >> "$LOG_FILE" 2>&1
+oc get all -n "$PREREQ_NAMESPACE" >> "$LOG_FILE" 2>&1
 
 write_section_header "PREREQUISITES DEPLOYMENT COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
