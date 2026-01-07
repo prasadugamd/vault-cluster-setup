@@ -147,7 +147,7 @@ DEPLOYMENT_STEPS=()
 write_section_header "STEP 0: CREATING NAMESPACE AND ROUTE"
 
 if [[ -x "$SCRIPT_DIR/create-namespace-route.sh" ]]; then
-    if bash "$SCRIPT_DIR/create-namespace-route.sh" "$CONFIG_FILE"; then
+    if bash "$SCRIPT_DIR/create-namespace-route.sh" "config-unsealer-vault.json" "config-vault-1.json"; then
         log_message "INFO" "✓ Namespace and route created successfully"
         DEPLOYMENT_STEPS+=("Namespace & Route: SUCCESS")
     else
