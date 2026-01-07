@@ -19,6 +19,7 @@ Automated HashiCorp Vault Cluster Setup on Kubernetes/OpenShift
 
 OPTIONS:
     -c, --config FILE       Configuration file (default: config.json)
+    -n, --skip-namespace    Skip namespace and route creation
     -s, --skip-certs        Skip TLS certificate generation
     -p, --skip-prereq       Skip prerequisites installation
     -d, --skip-deploy       Skip Vault cluster deployment
@@ -39,6 +40,7 @@ EOF
 
 # Default parameters
 CONFIG_FILE="config.json"
+SKIP_NAMESPACE=false
 SKIP_CERTS=false
 SKIP_PREREQ=false
 SKIP_DEPLOY=false
@@ -51,6 +53,10 @@ while [[ $# -gt 0 ]]; do
         -c|--config)
             CONFIG_FILE="$2"
             shift 2
+            ;;
+        -n|--skip-namespace)
+            SKIP_NAMESPACE=true
+            shift
             ;;
         -s|--skip-certs)
             SKIP_CERTS=true
@@ -144,23 +150,28 @@ fi
 DEPLOYMENT_STEPS=()
 
 # Step 0: Create Namespace and Route
-write_section_header "STEP 0: CREATING NAMESPACE AND ROUTE"
+if [[ "$SKIP_NAMESPACE" == false ]]; then
+    write_section_header "STEP 0: CREATING NAMESPACE AND ROUTE"
 
-if [[ -x "$SCRIPT_DIR/create-namespace-route.sh" ]]; then
-    if bash "$SCRIPT_DIR/create-namespace-route.sh" "config-unsealer-vault.json" "config-vault-1.json"; then
-        log_message "INFO" "✓ Namespace and route created successfully"
-        DEPLOYMENT_STEPS+=("Namespace & Route: SUCCESS")
+    if [[ -x "$SCRIPT_DIR/create-namespace-route.sh" ]]; then
+        if bash "$SCRIPT_DIR/create-namespace-route.sh" "config-unsealer-vault.json" "config-vault-1.json"; then
+            log_message "INFO" "✓ Namespace and route created successfully"
+            DEPLOYMENT_STEPS+=("Namespace & Route: SUCCESS")
+        else
+            log_message "ERROR" "✗ Namespace and route creation failed"
+            DEPLOYMENT_STEPS+=("Namespace & Route: FAILED")
+            log_message "ERROR" "Stopping deployment due to namespace/route creation failure"
+            exit 1
+        fi
     else
-        log_message "ERROR" "✗ Namespace and route creation failed"
-        DEPLOYMENT_STEPS+=("Namespace & Route: FAILED")
-        log_message "ERROR" "Stopping deployment due to namespace/route creation failure"
+        log_message "ERROR" "Namespace/route script not found: $SCRIPT_DIR/create-namespace-route.sh"
         exit 1
     fi
+    echo ""
 else
-    log_message "ERROR" "Namespace/route script not found: $SCRIPT_DIR/create-namespace-route.sh"
-    exit 1
+    log_message "INFO" "Skipping namespace and route creation (as requested)"
+    DEPLOYMENT_STEPS+=("Namespace & Route: SKIPPED")
 fi
-echo ""
 
 # Step 1: Generate Certificates
 if [[ "$SKIP_CERTS" == false ]]; then
