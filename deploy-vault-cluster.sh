@@ -55,86 +55,79 @@ log_message "INFO" "Cluster directory found"
 log_message "INFO" "Listing cluster directory contents..."
 ls -la "$CLUSTER_PATH" | tee -a "$LOG_FILE"
 
-# Check for Helm chart
-log_message "INFO" "Checking for Helm chart..."
-if [[ -f "$CLUSTER_PATH/Chart.yaml" ]]; then
-    log_message "INFO" "Helm chart detected"
-    
-    # Ensure namespace exists
-    log_message "INFO" "Checking if namespace exists: $NAMESPACE"
-    if oc get namespace "$NAMESPACE" &>/dev/null; then
-        log_message "INFO" "✓ Namespace $NAMESPACE already exists"
+# Check for certificates
+log_message "INFO" "Checking for certificates..."
+CERT_DIR="$BASE_PATH/$NAMESPACE-certs"
+if [[ -d "$CERT_DIR" ]]; then
+    log_message "INFO" "Certificate directory found: $CERT_DIR"
+    log_message "INFO" "Certificates found:"
+    ls -la "$CERT_DIR" | tee -a "$LOG_FILE"
+    log_message "INFO" "TLS secret 'vault-server-tls' should already exist (created by generate-certificates.sh)"
+else
+    log_message "WARN" "Certificate directory not found: $CERT_DIR"
+    log_message "WARN" "Run generate-certificates.sh first to create certificates and TLS secret"
+fi
+
+# Detect Helm chart (either .tgz or unpacked Chart.yaml)
+log_message "INFO" "Detecting Helm chart..."
+CHART_SOURCE=""
+
+# Check for .tgz chart files
+TGZ_CHARTS=($(find "$CLUSTER_PATH" -maxdepth 1 -type f -name "*.tgz" 2>/dev/null))
+
+if [[ ${#TGZ_CHARTS[@]} -gt 0 ]]; then
+    # If multiple .tgz files, use the most recently modified one
+    if [[ ${#TGZ_CHARTS[@]} -gt 1 ]]; then
+        log_message "WARN" "Multiple .tgz files found, using most recent:"
+        ls -lt "$CLUSTER_PATH"/*.tgz | head -n 5 | tee -a "$LOG_FILE"
+        CHART_SOURCE=$(ls -t "$CLUSTER_PATH"/*.tgz | head -n 1)
     else
-        log_message "INFO" "Creating namespace: $NAMESPACE"
-        oc create namespace "$NAMESPACE" >> "$LOG_FILE" 2>&1
-        if [[ $? -eq 0 ]]; then
-            log_message "INFO" "✓ Namespace created successfully"
-        else
-            log_message "ERROR" "✗ Failed to create namespace"
-            exit 1
-        fi
+        CHART_SOURCE="${TGZ_CHARTS[0]}"
     fi
-    
-    # Check for certificates
-    log_message "INFO" "Checking for certificates..."
-    CERT_DIR="$BASE_PATH/$NAMESPACE-certs"
-    if [[ -d "$CERT_DIR" ]]; then
-        log_message "INFO" "Certificate directory found: $CERT_DIR"
-        log_message "INFO" "Certificates found:"
-        ls -la "$CERT_DIR" | tee -a "$LOG_FILE"
-        
-        # Create TLS secret if certificates exist
-        log_message "INFO" "Creating/updating TLS secret from certificates..."
-        oc create secret generic vault-tls -n "$NAMESPACE" \
-            --from-file=ca.crt="$BASE_PATH/CA-certs/ca.crt" \
-            --from-file=tls.crt="$CERT_DIR/vault.crt" \
-            --from-file=tls.key="$CERT_DIR/vault.key" \
-            --from-file=vault.crt="$CERT_DIR/vault.crt" \
-            --from-file=vault.key="$CERT_DIR/vault.key" \
-            --dry-run=client -o yaml | oc apply -f - >> "$LOG_FILE" 2>&1
-        log_message "INFO" "TLS secret created/updated"
-    else
-        log_message "WARN" "Certificate directory not found: $CERT_DIR"
-        log_message "WARN" "Run generate-certificates.sh first to create certificates"
-    fi
-    
-    # Check for values files
-    VALUES_FLAG=""
-    if [[ -f "$CLUSTER_PATH/custom-values.yaml" ]]; then
-        log_message "INFO" "Found custom-values.yaml"
-        VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/custom-values.yaml"
-    fi
-    
-    if [[ -f "$CLUSTER_PATH/values.openshift.yaml" ]]; then
-        log_message "INFO" "Found values.openshift.yaml"
-        VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/values.openshift.yaml"
-    fi
-    
-    if [[ -f "$CLUSTER_PATH/values.yaml" ]]; then
-        log_message "INFO" "Found values.yaml"
-        VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/values.yaml"
-    fi
-    
-    if [[ -z "$VALUES_FLAG" ]]; then
-        log_message "WARN" "No values files found, using default Helm chart values"
-    else
-        log_message "INFO" "Using values files:$VALUES_FLAG"
-    fi
-    
-    # Deploy Vault cluster
-    log_message "INFO" "Deploying Vault cluster with Helm..."
-    cd "$CLUSTER_PATH"
-    
-    if helm upgrade --install "$RELEASE_NAME" . --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
-        log_message "INFO" "✓ Vault cluster deployed successfully"
-    else
-        log_message "ERROR" "✗ Vault cluster deployment failed"
-        exit 1
-    fi
-    
+    log_message "INFO" "Using packaged Helm chart: $(basename "$CHART_SOURCE")"
+elif [[ -f "$CLUSTER_PATH/Chart.yaml" ]]; then
+    CHART_SOURCE="$CLUSTER_PATH"
+    log_message "INFO" "Using unpacked Helm chart directory"
 else
     log_message "ERROR" "No Helm chart found in cluster directory"
-    log_message "ERROR" "Expected Chart.yaml at: $CLUSTER_PATH/Chart.yaml"
+    log_message "ERROR" "Expected either *.tgz file or Chart.yaml at: $CLUSTER_PATH"
+    exit 1
+fi
+
+# Check for values files
+VALUES_FLAG=""
+if [[ -f "$CLUSTER_PATH/custom-values.yaml" ]]; then
+    log_message "INFO" "Found custom-values.yaml"
+    VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/custom-values.yaml"
+fi
+
+if [[ -f "$CLUSTER_PATH/values.openshift.yaml" ]]; then
+    log_message "INFO" "Found values.openshift.yaml"
+    VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/values.openshift.yaml"
+fi
+
+if [[ -f "$CLUSTER_PATH/values.yaml" ]]; then
+    log_message "INFO" "Found values.yaml"
+    VALUES_FLAG="$VALUES_FLAG -f $CLUSTER_PATH/values.yaml"
+fi
+
+if [[ -z "$VALUES_FLAG" ]]; then
+    log_message "WARN" "No values files found, using default Helm chart values"
+else
+    log_message "INFO" "Using values files:$VALUES_FLAG"
+fi
+
+# Deploy Vault cluster
+log_message "INFO" "Deploying Vault cluster with Helm..."
+log_message "INFO" "Release Name: $RELEASE_NAME"
+log_message "INFO" "Namespace: $NAMESPACE"
+log_message "INFO" "Chart Source: $CHART_SOURCE"
+
+if helm upgrade --install "$RELEASE_NAME" "$CHART_SOURCE" --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+    log_message "INFO" "✓ Vault cluster deployed successfully"
+else
+    log_message "ERROR" "✗ Vault cluster deployment failed"
+    log_message "ERROR" "Check log file for details: $LOG_FILE"
     exit 1
 fi
 
