@@ -61,10 +61,18 @@ ls -la "$PREREQ_PATH" | tee -a "$LOG_FILE"
 log_message "INFO" "Checking for Helm chart..."
 
 # Find .tgz chart package or Chart.yaml
-TGZ_CHART=$(find "$PREREQ_PATH" -maxdepth 1 -type f -name "*.tgz" | head -1)
+TGZ_CHARTS=($(find "$PREREQ_PATH" -maxdepth 1 -type f -name "*.tgz"))
+TGZ_COUNT=${#TGZ_CHARTS[@]}
 
-if [[ -f "$PREREQ_PATH/Chart.yaml" ]] || [[ -n "$TGZ_CHART" ]]; then
-    if [[ -n "$TGZ_CHART" ]]; then
+if [[ -f "$PREREQ_PATH/Chart.yaml" ]] || [[ $TGZ_COUNT -gt 0 ]]; then
+    if [[ $TGZ_COUNT -gt 0 ]]; then
+        if [[ $TGZ_COUNT -gt 1 ]]; then
+            log_message "WARN" "Multiple .tgz files found ($TGZ_COUNT files). Using most recent one."
+            # Sort by modification time and pick the newest
+            TGZ_CHART=$(ls -t "$PREREQ_PATH"/*.tgz 2>/dev/null | head -1)
+        else
+            TGZ_CHART="${TGZ_CHARTS[0]}"
+        fi
         log_message "INFO" "Packaged Helm chart detected: $(basename "$TGZ_CHART")"
         CHART_PATH="$TGZ_CHART"
     else
