@@ -54,10 +54,44 @@ log_message "INFO" "Post-install directory found"
 log_message "INFO" "Listing post-install directory contents..."
 ls -la "$POST_INSTALL_PATH" | tee -a "$LOG_FILE"
 
-# Check for Helm chart
-log_message "INFO" "Checking for Helm chart..."
-if [[ -f "$POST_INSTALL_PATH/Chart.yaml" ]]; then
-    log_message "INFO" "Helm chart detected for post-installation"
+# Detect Helm chart (either .tgz or unpacked Chart.yaml)
+log_message "INFO" "Detecting post-install Helm chart..."
+CHART_SOURCE=""
+
+# Check for .tgz chart files
+TGZ_CHARTS=($(find "$POST_INSTALL_PATH" -maxdepth 1 -type f -name "*.tgz" 2>/dev/null))
+
+if [[ ${#TGZ_CHARTS[@]} -gt 0 ]]; then
+    # If multiple .tgz files, use the most recently modified one
+    if [[ ${#TGZ_CHARTS[@]} -gt 1 ]]; then
+        log_message "WARN" "Multiple .tgz files found, using most recent:"
+        ls -lt "$POST_INSTALL_PATH"/*.tgz | head -n 5 | tee -a "$LOG_FILE"
+        CHART_SOURCE=$(ls -t "$POST_INSTALL_PATH"/*.tgz | head -n 1)
+    else
+        CHART_SOURCE="${TGZ_CHARTS[0]}"
+    fi
+    log_message "INFO" "Using packaged Helm chart: $(basename "$CHART_SOURCE")"
+    
+    # Check if values.yaml exists
+    VALUES_FLAG=""
+    if [[ -f "$POST_INSTALL_PATH/values.yaml" ]]; then
+        log_message "INFO" "Using custom values.yaml"
+        VALUES_FLAG="-f $POST_INSTALL_PATH/values.yaml"
+    fi
+    
+    # Install post-install chart
+    log_message "INFO" "Running post-installation with Helm..."
+    
+    if helm upgrade --install vault-sm-setup "$CHART_SOURCE" --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+        log_message "INFO" "✓ Post-installation completed successfully"
+    else
+        log_message "ERROR" "✗ Post-installation failed"
+        exit 1
+    fi
+    
+elif [[ -f "$POST_INSTALL_PATH/Chart.yaml" ]]; then
+    log_message "INFO" "Using unpacked Helm chart directory"
+    CHART_SOURCE="$POST_INSTALL_PATH"
     
     # Check if values.yaml exists
     VALUES_FLAG=""

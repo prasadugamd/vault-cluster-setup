@@ -3,7 +3,7 @@
     "basePath": "/jenkins_home/vault-cluster-setup",
     "prerequisite": "hashicorp-vault-helm-pre-requisite",
     "cluster": "fndsec-hashicorp-vault-helm-1.6.0/unsealer-hashicorp-vault",
-    "postInstall": "hashicorp-vault-post-install-helm-1.1.6/fndsec-hashicorp-vault-post-install-helm"
+    "postInstall": "hashicorp-vault-post-install-helm-1.1.7"
   },
   "deployment": {
     "namespace": "unsealer-vault",
