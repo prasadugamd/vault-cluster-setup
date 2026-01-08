@@ -2,7 +2,7 @@
   "directories": {
     "basePath": "/jenkins_home/vault-cluster-setup",
     "prerequisite": "hashicorp-vault-helm-pre-requisite",
-    "cluster": "HashiCorp-Vault-Cluster/Vault/fndsec-hashicorp-vault-helm",
+    "cluster": "fndsec-hashicorp-vault-helm-1.6.0/hashicorp-vault",
     "postInstall": "hashicorp-vault-post-install-helm-1.1.6/fndsec-hashicorp-vault-post-install-helm"
   },
   "deployment": {
