@@ -34,6 +34,9 @@ initialize_logger "$LOG_DIR" "$LOG_LEVEL"
 # Get absolute path of log file to use after directory changes
 LOG_FILE="$(cd "$(dirname "$LOG_FILE")" && pwd)/$(basename "$LOG_FILE")"
 
+# Define consistent post-install release name
+POST_INSTALL_RELEASE="${RELEASE_NAME}-post-install"
+
 write_section_header "VAULT POST-INSTALLATION"
 
 log_message "INFO" "Post-Install Directory: $POST_INSTALL_DIR"
@@ -72,17 +75,21 @@ if [[ ${#TGZ_CHARTS[@]} -gt 0 ]]; then
     fi
     log_message "INFO" "Using packaged Helm chart: $(basename "$CHART_SOURCE")"
     
+    # Build Helm arguments array
+    HELM_ARGS=("upgrade" "--install" "$POST_INSTALL_RELEASE" "$CHART_SOURCE" "--namespace" "$NAMESPACE")
+    
     # Check if values.yaml exists
-    VALUES_FLAG=""
     if [[ -f "$POST_INSTALL_PATH/values.yaml" ]]; then
         log_message "INFO" "Using custom values.yaml"
-        VALUES_FLAG="-f $POST_INSTALL_PATH/values.yaml"
+        HELM_ARGS+=("--values" "$POST_INSTALL_PATH/values.yaml")
     fi
     
-    # Install post-install chart
-    log_message "INFO" "Running post-installation with Helm..."
+    HELM_ARGS+=("--timeout" "$HELM_TIMEOUT" "--wait")
     
-    if helm upgrade --install vault-sm-setup "$CHART_SOURCE" --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+    # Install post-install chart
+    log_message "INFO" "Running post-installation with Helm (release: $POST_INSTALL_RELEASE)..."
+    
+    if helm "${HELM_ARGS[@]}" >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Post-installation completed successfully"
     else
         log_message "ERROR" "✗ Post-installation failed"
@@ -93,18 +100,22 @@ elif [[ -f "$POST_INSTALL_PATH/Chart.yaml" ]]; then
     log_message "INFO" "Using unpacked Helm chart directory"
     CHART_SOURCE="$POST_INSTALL_PATH"
     
+    # Build Helm arguments array
+    HELM_ARGS=("upgrade" "--install" "$POST_INSTALL_RELEASE" "." "--namespace" "$NAMESPACE")
+    
     # Check if values.yaml exists
-    VALUES_FLAG=""
     if [[ -f "$POST_INSTALL_PATH/values.yaml" ]]; then
         log_message "INFO" "Using custom values.yaml"
-        VALUES_FLAG="-f $POST_INSTALL_PATH/values.yaml"
+        HELM_ARGS+=("--values" "$POST_INSTALL_PATH/values.yaml")
     fi
     
+    HELM_ARGS+=("--timeout" "$HELM_TIMEOUT" "--wait")
+    
     # Install post-install chart
-    log_message "INFO" "Running post-installation with Helm..."
+    log_message "INFO" "Running post-installation with Helm (release: $POST_INSTALL_RELEASE)..."
     cd "$POST_INSTALL_PATH"
     
-    if helm upgrade --install vault-post-install . --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+    if helm "${HELM_ARGS[@]}" >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Post-installation completed successfully"
     else
         log_message "ERROR" "✗ Post-installation failed"
