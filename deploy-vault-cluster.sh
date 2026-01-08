@@ -169,8 +169,8 @@ if [[ $# -eq 0 ]]; then
 fi
 
 # Arrays to track deployments
-declare -a SUCCESSFUL_DEPLOYMENTS
-declare -a FAILED_DEPLOYMENTS
+declare -a SUCCESSFUL_DEPLOYMENTS=()
+declare -a FAILED_DEPLOYMENTS=()
 
 echo "========================================"
 echo "VAULT CLUSTER MULTI-DEPLOYMENT"
