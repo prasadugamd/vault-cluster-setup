@@ -25,6 +25,7 @@ deploy_vault_cluster() {
     CLUSTER_DIR=$(jq -r '.directories.cluster' "$CONFIG_FILE")
     NAMESPACE=$(jq -r '.deployment.namespace' "$CONFIG_FILE")
     RELEASE_NAME=$(jq -r '.deployment.releaseName' "$CONFIG_FILE")
+    ROUTE_URL=$(jq -r '.deployment.routeUrl // ""' "$CONFIG_FILE")
     HELM_TIMEOUT=$(jq -r '.deployment.helmTimeout // "10m"' "$CONFIG_FILE")
     LOG_DIR=$(jq -r '.logging.logDir' "$CONFIG_FILE")
     LOG_LEVEL=$(jq -r '.logging.logLevel // "INFO"' "$CONFIG_FILE")
@@ -125,7 +126,14 @@ deploy_vault_cluster() {
     log_message "INFO" "Namespace: $NAMESPACE"
     log_message "INFO" "Chart Source: $CHART_SOURCE"
     
-    if helm upgrade --install "$RELEASE_NAME" "$CHART_SOURCE" --namespace "$NAMESPACE" $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+    # Build Helm command with route override if routeUrl is specified
+    HELM_EXTRA_ARGS=""
+    if [[ -n "$ROUTE_URL" ]]; then
+        HELM_EXTRA_ARGS="--set server.route.enabled=true --set server.route.host=$ROUTE_URL"
+        log_message "INFO" "Route URL: $ROUTE_URL"
+    fi
+    
+    if helm upgrade --install "$RELEASE_NAME" "$CHART_SOURCE" --namespace "$NAMESPACE" $VALUES_FLAG $HELM_EXTRA_ARGS --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Vault cluster deployed successfully"
     else
         log_message "ERROR" "✗ Vault cluster deployment failed"
