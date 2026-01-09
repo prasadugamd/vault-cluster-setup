@@ -187,12 +187,50 @@ update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 
 ## Deployment Steps
 
-### 0. Namespace Creation
+### 0. Pre-Deployment Requirements
+
+**Required Files to be Staged on Remote Server:**
+
+Before running the deployment scripts, ensure all required Helm charts and configuration files are present on the remote server:
+
+```bash
+/jenkins_home/vault-cluster-setup/
+├── hashicorp-vault-helm-pre-requisite/
+│   ├── fndsec-hashicorp-vault-helm-pre-requisite-1.6.0.tgz  # Pre-requisite Helm chart
+│   └── custom-values.yaml                                    # Custom values for pre-req
+│
+├── fndsec-hashicorp-vault-helm-1.6.0/
+│   ├── unsealer-hashicorp-vault/
+│   │   ├── fndsec-hashicorp-vault-helm-1.6.0.tgz           # Unsealer vault Helm chart
+│   │   ├── custom-values.yaml                               # Custom values for unsealer
+│   │   └── values.openshift.yaml                            # OpenShift-specific values
+│   │
+│   └── hashicorp-vault/
+│       ├── fndsec-hashicorp-vault-helm-1.6.0.tgz           # Data vault Helm chart
+│       ├── custom-values.yaml                               # Custom values for data vault
+│       └── values.openshift.yaml                            # OpenShift-specific values
+│
+└── hashicorp-vault-post-install-helm-1.1.7/
+    └── fndsec-hashicorp-vault-post-install-helm-1.1.7.tgz  # Post-install Helm chart
+```
+
+**Verification:**
+```bash
+# Check all required files are present
+find /jenkins_home/vault-cluster-setup -type f \( -name 'custom-values.yaml' -o -name 'values.openshift.yaml' -o -name '*.tgz' \)
+```
+
+**Key Files:**
+- **`.tgz` files**: Packaged Helm charts for deployment
+- **`custom-values.yaml`**: Custom configuration values (specific to your environment)
+- **`values.openshift.yaml`**: OpenShift-specific configurations (routes, security contexts)
+
+### 1. Namespace Creation
 - Creates OpenShift/Kubernetes namespaces
 - **Route creation disabled** - routes are now created by Helm chart during cluster deployment
 - Validates namespace creation
 
-### 1. TLS Certificate Generation
+### 2. TLS Certificate Generation
 - Generates CA certificate and private key (4096-bit RSA)
 - Creates server certificates with proper SANs for Kubernetes
 - Includes all Vault service DNS names
@@ -208,13 +246,13 @@ update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 - `vault-active.<namespace>.svc.cluster.local`
 - `localhost`, `127.0.0.1`
 
-### 2. Prerequisites Deployment
+### 3. Prerequisites Deployment
 - Installs required Kubernetes resources
 - Sets up secrets and ConfigMaps
 - Configures storage classes
 - Deploys supporting services
 
-### 3. Vault Cluster Deployment
+### 4. Vault Cluster Deployment
 - Deploys Vault StatefulSet (3 replicas with Raft storage)
 - Configures TLS certificates
 - Sets up Vault services
@@ -234,7 +272,7 @@ update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 - Passthrough TLS termination
 - Targets `vault-active` service
 
-### 4. Vault Initialization (NEW Functions!)
+### 5. Vault Initialization (NEW Functions!)
 
 **Built-in automation functions in deploy-vault-cluster.sh:**
 
@@ -262,7 +300,7 @@ update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 - Enables KV v2 secrets engine at path `/secret`
 - Extensible for additional features
 
-### 5. Post-Installation Configuration
+### 6. Post-Installation Configuration
 
 **Dynamic configuration based on namespace:**
 
@@ -291,7 +329,7 @@ The deploy-post-install.sh script automatically detects the vault type (unsealer
 - Creates vault-secrets-migration-user and vault-secrets-management-user
 - Enables audit logging
 
-### 6. User Policy Management (NEW Feature!)
+### 7. User Policy Management (NEW Feature!)
 
 **Automated user policy updates for data vaults:**
 
