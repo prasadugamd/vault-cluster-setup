@@ -55,7 +55,7 @@ for CONFIG_FILE in "${CONFIG_FILES[@]}"; do
     ROUTE_URL=$(jq -r '.deployment.routeUrl // ""' "$CONFIG_FILE")
     
     log_message "INFO" "  Namespace: $NAMESPACE"
-    log_message "INFO" "  Route Name: $ROUTE_NAME"
+    log_message "INFO" "  Route Name: $ROUTE_NAME (will be created by Helm chart)"
     
     # Create namespace if not exists
     log_message "INFO" "  Creating namespace: $NAMESPACE"
@@ -66,72 +66,79 @@ for CONFIG_FILE in "${CONFIG_FILES[@]}"; do
         exit 1
     fi
     
-    # Create OpenShift Route for Vault
-    log_message "INFO" "  Creating OpenShift Route for Vault external access..."
-    
+    # Route creation is disabled - routes will be created by Helm chart in deploy-vault-cluster.sh
+    log_message "INFO" "  ⓘ Route creation skipped - will be created by Helm chart deployment"
     if [[ -n "$ROUTE_URL" ]]; then
-        log_message "INFO" "  Route URL: $ROUTE_URL"
+        log_message "INFO" "  Route URL configured: $ROUTE_URL (will be applied during Helm install)"
     fi
     
-    # Create route YAML and apply
-    if [[ -n "$ROUTE_URL" ]]; then
-        # Create route with custom host
-        oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: $ROUTE_NAME
-  namespace: $NAMESPACE
-  labels:
-    app.kubernetes.io/instance: $RELEASE_NAME
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: vault
-spec:
-  host: $ROUTE_URL
-  to:
-    kind: Service
-    name: vault-active
-    weight: 100
-  port:
-    targetPort: 8200
-  tls:
-    termination: passthrough
-  wildcardPolicy: None
-EOF
-    else
-        # Create route without custom host (OpenShift will assign)
-        oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: $ROUTE_NAME
-  namespace: $NAMESPACE
-  labels:
-    app.kubernetes.io/instance: $RELEASE_NAME
-    app.kubernetes.io/managed-by: Helm
-    app.kubernetes.io/name: vault
-spec:
-  to:
-    kind: Service
-    name: vault-active
-    weight: 100
-  port:
-    targetPort: 8200
-  tls:
-    termination: passthrough
-  wildcardPolicy: None
-EOF
-    fi
-    
-    if [[ $? -eq 0 ]]; then
-        log_message "INFO" "  ✓ OpenShift Route created successfully"
-        
-        # Get route details (may not have hostname yet until service exists)
-        ROUTE_HOST=$(oc get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route created, hostname will be assigned when service is available")
-        log_message "INFO" "  Route: $ROUTE_HOST"
-    else
-        log_message "WARN" "  Route creation failed or already exists"
-    fi
+    # Commenting out route creation - now handled by Helm chart
+    # # Create OpenShift Route for Vault
+    # log_message "INFO" "  Creating OpenShift Route for Vault external access..."
+    # 
+    # if [[ -n "$ROUTE_URL" ]]; then
+    #     log_message "INFO" "  Route URL: $ROUTE_URL"
+    # fi
+    # 
+    # # Create route YAML and apply
+    # if [[ -n "$ROUTE_URL" ]]; then
+    #     # Create route with custom host
+    #     oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
+    # apiVersion: route.openshift.io/v1
+    # kind: Route
+    # metadata:
+    #   name: $ROUTE_NAME
+    #   namespace: $NAMESPACE
+    #   labels:
+    #     app.kubernetes.io/instance: $RELEASE_NAME
+    #     app.kubernetes.io/managed-by: Helm
+    #     app.kubernetes.io/name: vault
+    # spec:
+    #   host: $ROUTE_URL
+    #   to:
+    #     kind: Service
+    #     name: vault-active
+    #     weight: 100
+    #   port:
+    #     targetPort: 8200
+    #   tls:
+    #     termination: passthrough
+    #   wildcardPolicy: None
+    # EOF
+    # else
+    #     # Create route without custom host (OpenShift will assign)
+    #     oc apply -f - >> "$LOG_FILE" 2>&1 <<EOF
+    # apiVersion: route.openshift.io/v1
+    # kind: Route
+    # metadata:
+    #   name: $ROUTE_NAME
+    #   namespace: $NAMESPACE
+    #   labels:
+    #     app.kubernetes.io/instance: $RELEASE_NAME
+    #     app.kubernetes.io/managed-by: Helm
+    #     app.kubernetes.io/name: vault
+    # spec:
+    #   to:
+    #     kind: Service
+    #     name: vault-active
+    #     weight: 100
+    #   port:
+    #     targetPort: 8200
+    #   tls:
+    #     termination: passthrough
+    #   wildcardPolicy: None
+    # EOF
+    # fi
+    # 
+    # if [[ $? -eq 0 ]]; then
+    #     log_message "INFO" "  ✓ OpenShift Route created successfully"
+    #     
+    #     # Get route details (may not have hostname yet until service exists)
+    #     ROUTE_HOST=$(oc get route "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route created, hostname will be assigned when service is available")
+    #     log_message "INFO" "  Route: $ROUTE_HOST"
+    # else
+    #     log_message "WARN" "  Route creation failed or already exists"
+    # fi
     
     echo ""
 done

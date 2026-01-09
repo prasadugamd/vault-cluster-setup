@@ -10,6 +10,73 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source logger module
 source "$SCRIPT_DIR/modules/logger.sh"
 
+# Function to update user policies to admin policy
+update_user_admin_policies() {
+    local NAMESPACE="$1"
+    local ROOT_TOKEN="$2"
+    local LOG_FILE="$3"
+    
+    log_message "INFO" "Updating user policies to vault-admin-policy in namespace: $NAMESPACE"
+    
+    # Check if vault-admin-policy exists
+    log_message "INFO" "Checking for vault-admin-policy..."
+    if ! oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault policy list" 2>&1 | grep -q "vault-admin-policy"; then
+        log_message "WARN" "vault-admin-policy not found, skipping user policy updates"
+        return 0
+    fi
+    
+    log_message "INFO" "✓ vault-admin-policy found"
+    
+    # Read vault-admin-policy content for logging
+    log_message "INFO" "vault-admin-policy content:"
+    oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault policy read vault-admin-policy" >> "$LOG_FILE" 2>&1
+    
+    # Check if userpass auth is enabled
+    if ! oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault auth list" 2>&1 | grep -q "userpass"; then
+        log_message "WARN" "userpass authentication not enabled, skipping user policy updates"
+        return 0
+    fi
+    
+    # Update vault-secrets-migration-user
+    log_message "INFO" "Updating vault-secrets-migration-user policy..."
+    if oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault read auth/userpass/users/vault-secrets-migration-user" >> "$LOG_FILE" 2>&1; then
+        log_message "INFO" "Current policy for vault-secrets-migration-user:"
+        oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault read auth/userpass/users/vault-secrets-migration-user" 2>&1 | grep "policies" >> "$LOG_FILE"
+        
+        if oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault write auth/userpass/users/vault-secrets-migration-user policies=\"vault-admin-policy\"" >> "$LOG_FILE" 2>&1; then
+            log_message "INFO" "✓ vault-secrets-migration-user updated to vault-admin-policy"
+        else
+            log_message "WARN" "Failed to update vault-secrets-migration-user policy"
+        fi
+    else
+        log_message "WARN" "vault-secrets-migration-user not found, skipping"
+    fi
+    
+    # Update vault-secrets-management-user
+    log_message "INFO" "Updating vault-secrets-management-user policy..."
+    if oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault read auth/userpass/users/vault-secrets-management-user" >> "$LOG_FILE" 2>&1; then
+        log_message "INFO" "Current policy for vault-secrets-management-user:"
+        oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault read auth/userpass/users/vault-secrets-management-user" 2>&1 | grep "policies" >> "$LOG_FILE"
+        
+        if oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; vault write auth/userpass/users/vault-secrets-management-user policies=\"vault-admin-policy\"" >> "$LOG_FILE" 2>&1; then
+            log_message "INFO" "✓ vault-secrets-management-user updated to vault-admin-policy"
+        else
+            log_message "WARN" "Failed to update vault-secrets-management-user policy"
+        fi
+    else
+        log_message "WARN" "vault-secrets-management-user not found, skipping"
+    fi
+    
+    # Verify updates
+    log_message "INFO" "Verifying policy updates..."
+    oc exec vault-0 -n "$NAMESPACE" -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; echo \"=== Migration User ===\" ; vault read auth/userpass/users/vault-secrets-migration-user ; echo \"\" ; echo \"=== Management User ===\" ; vault read auth/userpass/users/vault-secrets-management-user" >> "$LOG_FILE" 2>&1
+    
+    log_message "INFO" "✓ User policy updates completed"
+    log_message "INFO" "Both users now have vault-admin-policy (full admin access: create, read, update, delete, list, sudo on all paths)"
+    
+    return 0
+}
+
 # Default config file
 CONFIG_FILE="${1:-config.json}"
 

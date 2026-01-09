@@ -10,6 +10,218 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source logger module
 source "$SCRIPT_DIR/modules/logger.sh"
 
+# Function to initialize and unseal unsealer vault
+initialize_unsealer_vault() {
+    local NAMESPACE="$1"
+    local LOG_FILE="$2"
+    local INIT_FILE="${3:-/tmp/vault-init-keys.json}"
+    
+    log_message "INFO" "Initializing unsealer vault in namespace: $NAMESPACE"
+    
+    # Check if vault is already initialized
+    if oc exec vault-0 -n "$NAMESPACE" -- vault status 2>&1 | grep -q "Initialized.*true"; then
+        log_message "WARN" "Vault already initialized in $NAMESPACE"
+        if [[ -f "$INIT_FILE" ]]; then
+            log_message "INFO" "Using existing init file: $INIT_FILE"
+            return 0
+        else
+            log_message "ERROR" "Vault is initialized but init file not found: $INIT_FILE"
+            return 1
+        fi
+    fi
+    
+    # Initialize vault with 5 key shares and 3 threshold
+    log_message "INFO" "Initializing Vault with 5 key shares, 3 threshold..."
+    if oc exec vault-0 -n "$NAMESPACE" -- vault operator init -key-shares=5 -key-threshold=3 -format=json > "$INIT_FILE" 2>&1; then
+        log_message "INFO" "✓ Vault initialized successfully"
+        log_message "INFO" "Init keys saved to: $INIT_FILE"
+    else
+        log_message "ERROR" "✗ Vault initialization failed"
+        return 1
+    fi
+    
+    # Extract unseal keys
+    KEY1=$(jq -r '.unseal_keys_b64[0]' "$INIT_FILE")
+    KEY2=$(jq -r '.unseal_keys_b64[1]' "$INIT_FILE")
+    KEY3=$(jq -r '.unseal_keys_b64[2]' "$INIT_FILE")
+    ROOT_TOKEN=$(jq -r '.root_token' "$INIT_FILE")
+    
+    log_message "INFO" "Root Token: $ROOT_TOKEN"
+    
+    # Unseal all vault pods
+    for POD in vault-0 vault-1 vault-2; do
+        log_message "INFO" "Unsealing $POD..."
+        oc exec "$POD" -n "$NAMESPACE" -- vault operator unseal "$KEY1" >> "$LOG_FILE" 2>&1
+        oc exec "$POD" -n "$NAMESPACE" -- vault operator unseal "$KEY2" >> "$LOG_FILE" 2>&1
+        oc exec "$POD" -n "$NAMESPACE" -- vault operator unseal "$KEY3" >> "$LOG_FILE" 2>&1
+        log_message "INFO" "✓ $POD unsealed"
+    done
+    
+    # Verify cluster status
+    log_message "INFO" "Verifying vault cluster status..."
+    oc get pods -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
+    oc exec vault-0 -n "$NAMESPACE" -- vault status >> "$LOG_FILE" 2>&1
+    
+    # Login with root token
+    log_message "INFO" "Logging in with root token..."
+    oc exec vault-0 -n "$NAMESPACE" -- vault login "$ROOT_TOKEN" >> "$LOG_FILE" 2>&1
+    
+    # Check raft peers
+    log_message "INFO" "Checking Raft cluster peers..."
+    oc exec vault-0 -n "$NAMESPACE" -- env VAULT_TOKEN="$ROOT_TOKEN" vault operator raft list-peers >> "$LOG_FILE" 2>&1
+    
+    log_message "INFO" "✓ Unsealer vault initialized and unsealed successfully"
+    return 0
+}
+
+# Function to setup transit auto-unseal on unsealer vault
+setup_transit_autounseal() {
+    local UNSEALER_NAMESPACE="$1"
+    local DATA_NAMESPACE="$2"
+    local LOG_FILE="$3"
+    local UNSEALER_INIT_FILE="${4:-/tmp/vault-init-keys.json}"
+    local TRANSIT_KEY="${5:-autounseal_1}"
+    
+    log_message "INFO" "Setting up Transit auto-unseal for $DATA_NAMESPACE"
+    
+    # Get root token from unsealer vault
+    if [[ ! -f "$UNSEALER_INIT_FILE" ]]; then
+        log_message "ERROR" "Unsealer vault init file not found: $UNSEALER_INIT_FILE"
+        return 1
+    fi
+    
+    ROOT_TOKEN=$(jq -r '.root_token' "$UNSEALER_INIT_FILE")
+    
+    # Enable transit secrets engine
+    log_message "INFO" "Enabling transit secrets engine..."
+    if oc exec vault-0 -n "$UNSEALER_NAMESPACE" -- env VAULT_TOKEN="$ROOT_TOKEN" vault secrets enable transit 2>&1 | grep -q "path is already in use"; then
+        log_message "WARN" "Transit engine already enabled"
+    else
+        log_message "INFO" "✓ Transit engine enabled"
+    fi
+    
+    # Create transit encryption key
+    log_message "INFO" "Creating transit key: $TRANSIT_KEY"
+    oc exec vault-0 -n "$UNSEALER_NAMESPACE" -- env VAULT_TOKEN="$ROOT_TOKEN" vault write -f "transit/keys/$TRANSIT_KEY" >> "$LOG_FILE" 2>&1
+    
+    # Create autounseal policy
+    log_message "INFO" "Creating autounseal policy..."
+    POLICY_FILE="/tmp/autounseal-policy-$DATA_NAMESPACE.hcl"
+    cat > "$POLICY_FILE" << EOF
+path "transit/encrypt/$TRANSIT_KEY" {
+  capabilities = [ "update" ]
+}
+
+path "transit/decrypt/$TRANSIT_KEY" {
+  capabilities = [ "update" ]
+}
+EOF
+    
+    oc exec vault-0 -n "$UNSEALER_NAMESPACE" -- env VAULT_TOKEN="$ROOT_TOKEN" vault policy write autounseal - < "$POLICY_FILE" >> "$LOG_FILE" 2>&1
+    log_message "INFO" "✓ Autounseal policy created"
+    
+    # Create token for autounseal
+    log_message "INFO" "Creating autounseal token..."
+    TOKEN_FILE="/tmp/${DATA_NAMESPACE}-autounseal-token.json"
+    oc exec vault-0 -n "$UNSEALER_NAMESPACE" -- env VAULT_TOKEN="$ROOT_TOKEN" vault token create -policy=autounseal -orphan -format=json > "$TOKEN_FILE" 2>&1
+    
+    TRANSIT_TOKEN=$(jq -r '.auth.client_token' "$TOKEN_FILE")
+    if [[ -z "$TRANSIT_TOKEN" || "$TRANSIT_TOKEN" == "null" ]]; then
+        log_message "ERROR" "Failed to create transit token"
+        return 1
+    fi
+    
+    log_message "INFO" "Transit Token: $TRANSIT_TOKEN"
+    
+    # Create secret in data vault namespace
+    log_message "INFO" "Creating vault-transit-token-secret in $DATA_NAMESPACE..."
+    oc create secret generic vault-transit-token-secret \
+        --from-literal=token="$TRANSIT_TOKEN" \
+        -n "$DATA_NAMESPACE" \
+        --dry-run=client -o yaml | oc apply -f - >> "$LOG_FILE" 2>&1
+    
+    log_message "INFO" "✓ Transit auto-unseal configured successfully"
+    return 0
+}
+
+# Function to initialize vault with transit auto-unseal (data vault)
+initialize_data_vault() {
+    local NAMESPACE="$1"
+    local LOG_FILE="$2"
+    local INIT_FILE="${3:-/tmp/${NAMESPACE}-init-keys.json}"
+    
+    log_message "INFO" "Initializing data vault in namespace: $NAMESPACE"
+    
+    # Check if vault is already initialized
+    if oc exec vault-0 -n "$NAMESPACE" -- vault status 2>&1 | grep -q "Initialized.*true"; then
+        log_message "WARN" "Vault already initialized in $NAMESPACE"
+        if [[ -f "$INIT_FILE" ]]; then
+            log_message "INFO" "Using existing init file: $INIT_FILE"
+            return 0
+        else
+            log_message "ERROR" "Vault is initialized but init file not found: $INIT_FILE"
+            return 1
+        fi
+    fi
+    
+    # Initialize with recovery keys (transit auto-unseal)
+    log_message "INFO" "Initializing Vault with transit auto-unseal (recovery keys)..."
+    if oc exec vault-0 -n "$NAMESPACE" -- vault operator init -recovery-shares=5 -recovery-threshold=3 -format=json > "$INIT_FILE" 2>&1; then
+        log_message "INFO" "✓ Vault initialized successfully with transit auto-unseal"
+        log_message "INFO" "Recovery keys saved to: $INIT_FILE"
+    else
+        log_message "ERROR" "✗ Vault initialization failed"
+        return 1
+    fi
+    
+    # Extract root token
+    ROOT_TOKEN=$(jq -r '.root_token' "$INIT_FILE")
+    log_message "INFO" "Root Token: $ROOT_TOKEN"
+    
+    # Wait for pods to be ready
+    sleep 5
+    
+    # Verify vault status
+    log_message "INFO" "Verifying vault status..."
+    oc get pods -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
+    oc exec vault-0 -n "$NAMESPACE" -- vault status >> "$LOG_FILE" 2>&1
+    
+    # Login with root token
+    log_message "INFO" "Logging in with root token..."
+    oc exec vault-0 -n "$NAMESPACE" -- vault login "$ROOT_TOKEN" >> "$LOG_FILE" 2>&1
+    
+    log_message "INFO" "✓ Data vault initialized successfully"
+    return 0
+}
+
+# Function to enable basic vault features
+enable_vault_features() {
+    local NAMESPACE="$1"
+    local LOG_FILE="$2"
+    local INIT_FILE="$3"
+    
+    log_message "INFO" "Enabling basic Vault features in $NAMESPACE"
+    
+    # Get root token
+    if [[ ! -f "$INIT_FILE" ]]; then
+        log_message "ERROR" "Init file not found: $INIT_FILE"
+        return 1
+    fi
+    
+    ROOT_TOKEN=$(jq -r '.root_token' "$INIT_FILE")
+    
+    # Enable KV v2 secrets engine
+    log_message "INFO" "Enabling KV v2 secrets engine..."
+    if oc exec vault-0 -n "$NAMESPACE" -- env VAULT_TOKEN="$ROOT_TOKEN" vault secrets enable -path=secret kv-v2 2>&1 | grep -q "path is already in use"; then
+        log_message "WARN" "KV v2 engine already enabled"
+    else
+        log_message "INFO" "✓ KV v2 secrets engine enabled"
+    fi
+    
+    log_message "INFO" "✓ Basic features enabled successfully"
+    return 0
+}
+
 # Function to deploy a single vault cluster
 deploy_vault_cluster() {
     local CONFIG_FILE="$1"
