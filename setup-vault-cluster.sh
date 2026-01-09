@@ -13,12 +13,14 @@ source "$SCRIPT_DIR/modules/logger.sh"
 # Script usage
 usage() {
     cat << EOF
-Usage: $0 [OPTIONS]
+Usage: $0 [OPTIONS] [CONFIG_FILES...]
 
 Automated HashiCorp Vault Cluster Setup on Kubernetes/OpenShift
 
+ARGUMENTS:
+    CONFIG_FILES            One or more configuration files (default: config.json)
+
 OPTIONS:
-    -c, --config FILE       Configuration file (default: config.json)
     -n, --skip-namespace    Skip namespace and route creation
     -s, --skip-certs        Skip TLS certificate generation
     -p, --skip-prereq       Skip prerequisites installation
@@ -28,18 +30,18 @@ OPTIONS:
     -h, --help              Display this help message
 
 EXAMPLES:
-    $0                              # Run complete setup
-    $0 -t                           # Test cluster connectivity
-    $0 -s                           # Skip certificate generation
-    $0 -c custom-config.json        # Use custom config file
-    $0 -p -d                        # Skip prerequisites and deployment
+    $0 config-unsealer-vault.json config-vault-1.json    # Deploy both vaults
+    $0 config-unsealer-vault.json                        # Deploy unsealer only
+    $0 -t                                                 # Test cluster connectivity
+    $0 -s config-unsealer-vault.json config-vault-1.json # Skip certificate generation
+    $0 -p config-vault-1.json                            # Skip prerequisites
 
 EOF
     exit 0
 }
 
 # Default parameters
-CONFIG_FILE="config.json"
+CONFIG_FILES=()
 SKIP_NAMESPACE=false
 SKIP_CERTS=false
 SKIP_PREREQ=false
@@ -50,10 +52,6 @@ TEST_CONNECTION=false
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -c|--config)
-            CONFIG_FILE="$2"
-            shift 2
-            ;;
         -n|--skip-namespace)
             SKIP_NAMESPACE=true
             shift
@@ -81,18 +79,32 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             usage
             ;;
-        *)
+        -*)
             echo "Unknown option: $1"
             usage
+            ;;
+        *)
+            # Positional argument - config file
+            CONFIG_FILES+=("$1")
+            shift
             ;;
     esac
 done
 
-# Check if config file exists
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "ERROR: Configuration file not found: $CONFIG_FILE"
-    exit 1
+# Check if config files were provided
+if [[ ${#CONFIG_FILES[@]} -eq 0 ]]; then
+    echo "ERROR: No configuration files specified"
+    echo ""
+    usage
 fi
+
+# Validate config files exist
+for config_file in "${CONFIG_FILES[@]}"; do
+    if [[ ! -f "$config_file" ]]; then
+        echo "ERROR: Configuration file not found: $config_file"
+        exit 1
+    fi
+done
 
 # Check for required commands
 for cmd in oc helm jq openssl; do
@@ -102,28 +114,17 @@ for cmd in oc helm jq openssl; do
     fi
 done
 
-# Parse configuration
-NAMESPACE=$(jq -r '.deployment.namespace' "$CONFIG_FILE")
-RELEASE_NAME=$(jq -r '.deployment.releaseName' "$CONFIG_FILE")
-BASE_PATH=$(jq -r '.directories.basePath // "/jenkins_home/vault-cluster-setup"' "$CONFIG_FILE" 2>/dev/null || echo "/jenkins_home/vault-cluster-setup")
-LOG_DIR=$(jq -r '.logging.logDir' "$CONFIG_FILE")
-LOG_LEVEL=$(jq -r '.logging.logLevel // "INFO"' "$CONFIG_FILE")
-
-# Initialize logger
+# Initialize logger using first config file
+FIRST_CONFIG="${CONFIG_FILES[0]}"
+LOG_DIR=$(jq -r '.logging.logDir' "$FIRST_CONFIG")
+LOG_LEVEL=$(jq -r '.logging.logLevel // "INFO"' "$FIRST_CONFIG")
 initialize_logger "$LOG_DIR" "$LOG_LEVEL"
 
 echo ""
 write_section_header "HASHICORP VAULT CLUSTER SETUP"
 log_message "INFO" "Starting Vault cluster setup automation"
 log_message "INFO" "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
-log_message "INFO" "Configuration: $CONFIG_FILE"
-echo ""
-
-# Display configuration
-log_message "INFO" "Configuration Details:"
-log_message "INFO" "  Base Path: $BASE_PATH"
-log_message "INFO" "  Namespace: $NAMESPACE"
-log_message "INFO" "  Release Name: $RELEASE_NAME"
+log_message "INFO" "Configuration Files: ${CONFIG_FILES[*]}"
 echo ""
 
 # Test Kubernetes connectivity
@@ -154,7 +155,7 @@ if [[ "$SKIP_NAMESPACE" == false ]]; then
     write_section_header "STEP 0: CREATING NAMESPACE AND ROUTE"
 
     if [[ -x "$SCRIPT_DIR/create-namespace-route.sh" ]]; then
-        if bash "$SCRIPT_DIR/create-namespace-route.sh" "config-unsealer-vault.json" "config-vault-1.json"; then
+        if bash "$SCRIPT_DIR/create-namespace-route.sh" "${CONFIG_FILES[@]}"; then
             log_message "INFO" "✓ Namespace and route created successfully"
             DEPLOYMENT_STEPS+=("Namespace & Route: SUCCESS")
         else
@@ -178,11 +179,22 @@ if [[ "$SKIP_CERTS" == false ]]; then
     write_section_header "STEP 1: GENERATING TLS CERTIFICATES"
     
     if [[ -x "$SCRIPT_DIR/generate-certificates.sh" ]]; then
-        if bash "$SCRIPT_DIR/generate-certificates.sh" "$CONFIG_FILE"; then
-            log_message "INFO" "✓ TLS certificates generated successfully"
+        CERT_SUCCESS=true
+        for config_file in "${CONFIG_FILES[@]}"; do
+            NAMESPACE=$(jq -r '.deployment.namespace' "$config_file")
+            log_message "INFO" "Generating certificates for namespace: $NAMESPACE"
+            if bash "$SCRIPT_DIR/generate-certificates.sh" "$config_file"; then
+                log_message "INFO" "✓ TLS certificates generated for $NAMESPACE"
+            else
+                log_message "ERROR" "✗ Certificate generation failed for $NAMESPACE"
+                CERT_SUCCESS=false
+                break
+            fi
+        done
+        
+        if [[ "$CERT_SUCCESS" == true ]]; then
             DEPLOYMENT_STEPS+=("Certificates: SUCCESS")
         else
-            log_message "ERROR" "✗ Certificate generation failed"
             DEPLOYMENT_STEPS+=("Certificates: FAILED")
             log_message "ERROR" "Stopping deployment due to certificate generation failure"
             exit 1
@@ -202,7 +214,8 @@ if [[ "$SKIP_PREREQ" == false ]]; then
     write_section_header "STEP 2: DEPLOYING PREREQUISITES"
     
     if [[ -x "$SCRIPT_DIR/deploy-prerequisites.sh" ]]; then
-        if bash "$SCRIPT_DIR/deploy-prerequisites.sh" "$CONFIG_FILE"; then
+        # Prerequisites are cluster-wide, only need to deploy once
+        if bash "$SCRIPT_DIR/deploy-prerequisites.sh"; then
             log_message "INFO" "✓ Prerequisites deployment completed"
             DEPLOYMENT_STEPS+=("Prerequisites: SUCCESS")
         else
@@ -226,11 +239,22 @@ if [[ "$SKIP_DEPLOY" == false ]]; then
     write_section_header "STEP 3: DEPLOYING VAULT CLUSTER"
     
     if [[ -x "$SCRIPT_DIR/deploy-vault-cluster.sh" ]]; then
-        if bash "$SCRIPT_DIR/deploy-vault-cluster.sh" "$CONFIG_FILE"; then
-            log_message "INFO" "✓ Vault cluster deployment completed"
+        DEPLOY_SUCCESS=true
+        for config_file in "${CONFIG_FILES[@]}"; do
+            NAMESPACE=$(jq -r '.deployment.namespace' "$config_file")
+            log_message "INFO" "Deploying vault cluster for namespace: $NAMESPACE"
+            if bash "$SCRIPT_DIR/deploy-vault-cluster.sh" "$config_file"; then
+                log_message "INFO" "✓ Vault cluster deployment completed for $NAMESPACE"
+            else
+                log_message "ERROR" "✗ Vault cluster deployment failed for $NAMESPACE"
+                DEPLOY_SUCCESS=false
+                break
+            fi
+        done
+        
+        if [[ "$DEPLOY_SUCCESS" == true ]]; then
             DEPLOYMENT_STEPS+=("Vault Cluster: SUCCESS")
         else
-            log_message "ERROR" "✗ Vault cluster deployment failed"
             DEPLOYMENT_STEPS+=("Vault Cluster: FAILED")
             log_message "ERROR" "Stopping deployment due to cluster failure"
             exit 1
@@ -250,11 +274,21 @@ if [[ "$SKIP_POSTINSTALL" == false ]]; then
     write_section_header "STEP 4: POST-INSTALLATION CONFIGURATION"
     
     if [[ -x "$SCRIPT_DIR/deploy-post-install.sh" ]]; then
-        if bash "$SCRIPT_DIR/deploy-post-install.sh" "$CONFIG_FILE"; then
-            log_message "INFO" "✓ Post-installation completed"
+        POSTINSTALL_SUCCESS=true
+        for config_file in "${CONFIG_FILES[@]}"; do
+            NAMESPACE=$(jq -r '.deployment.namespace' "$config_file")
+            log_message "INFO" "Running post-installation for namespace: $NAMESPACE"
+            if bash "$SCRIPT_DIR/deploy-post-install.sh" "$config_file"; then
+                log_message "INFO" "✓ Post-installation completed for $NAMESPACE"
+            else
+                log_message "WARN" "Post-installation completed with warnings for $NAMESPACE"
+                POSTINSTALL_SUCCESS=false
+            fi
+        done
+        
+        if [[ "$POSTINSTALL_SUCCESS" == true ]]; then
             DEPLOYMENT_STEPS+=("Post-Install: SUCCESS")
         else
-            log_message "WARN" "Post-installation completed with warnings"
             DEPLOYMENT_STEPS+=("Post-Install: COMPLETED WITH WARNINGS")
         fi
     else
@@ -275,37 +309,34 @@ for step in "${DEPLOYMENT_STEPS[@]}"; do
 done
 echo ""
 
-# Get final cluster status
+# Get final cluster status for all deployed vaults
 log_message "INFO" "Final Cluster Status:"
-kubectl get all -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
-echo ""
-
-# Check Vault pods specifically
-log_message "INFO" "Vault Pods Status:"
-kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide >> "$LOG_FILE" 2>&1
-echo ""
-
-# Get Vault service endpoints
-log_message "INFO" "Vault Service Endpoints:"
-kubectl get svc -n "$NAMESPACE" -l app.kubernetes.io/name=vault >> "$LOG_FILE" 2>&1
-echo ""
-
-# Get Route information
-log_message "INFO" "Vault Route Information:"
-if kubectl get route vault -n "$NAMESPACE" &> /dev/null; then
-    ROUTE_HOST=$(kubectl get route vault -n "$NAMESPACE" -o jsonpath='{.spec.host}')
-    log_message "INFO" "External URL: https://$ROUTE_HOST"
-else
-    log_message "INFO" "No route configured (use port-forward or create route manually)"
-fi
-echo ""
+for config_file in "${CONFIG_FILES[@]}"; do
+    NAMESPACE=$(jq -r '.deployment.namespace' "$config_file")
+    log_message "INFO" "Status for namespace: $NAMESPACE"
+    kubectl get all -n "$NAMESPACE" >> "$LOG_FILE" 2>&1
+    kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=vault -o wide >> "$LOG_FILE" 2>&1
+    
+    # Get Route information
+    if kubectl get route vault -n "$NAMESPACE" &> /dev/null; then
+        ROUTE_HOST=$(kubectl get route vault -n "$NAMESPACE" -o jsonpath='{.spec.host}')
+        log_message "INFO" "  External URL: https://$ROUTE_HOST"
+    fi
+    echo ""
+done
 
 write_section_header "SETUP COMPLETED SUCCESSFULLY"
 log_message "INFO" "Vault cluster setup completed!"
 log_message "INFO" "Log file: $(get_log_file_path)"
 log_message "INFO" ""
+log_message "INFO" "Deployed Vaults:"
+for config_file in "${CONFIG_FILES[@]}"; do
+    NAMESPACE=$(jq -r '.deployment.namespace' "$config_file")
+    log_message "INFO" "  - $NAMESPACE"
+done
+log_message "INFO" ""
 log_message "INFO" "Next Steps:"
-log_message "INFO" "  1. Initialize Vault: oc exec -n $NAMESPACE vault-0 -- vault operator init"
+log_message "INFO" "  1. Initialize Vault: oc exec -n <namespace> vault-0 -- vault operator init"
 log_message "INFO" "  2. Unseal Vault nodes with the unseal keys"
 log_message "INFO" "  3. Configure authentication methods and policies"
 log_message "INFO" "  4. Test Vault connectivity"

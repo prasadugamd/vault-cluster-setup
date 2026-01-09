@@ -102,13 +102,59 @@ The project uses JSON configuration files for each vault cluster:
 
 ## Usage
 
-### Complete Setup
+### Orchestration Script (setup-vault-cluster.sh)
 
-Run the full deployment for all configured vaults:
+The main orchestration script automates the entire Vault cluster setup process. It accepts multiple configuration files and processes each vault deployment sequentially.
 
+**Syntax:**
 ```bash
-./setup-vault-cluster.sh config-unsealer-vault.json config-vault-1.json
+./setup-vault-cluster.sh [OPTIONS] <CONFIG_FILES...>
 ```
+
+**Arguments:**
+- `CONFIG_FILES` - One or more configuration files (required)
+
+**Options:**
+- `-n, --skip-namespace` - Skip namespace and route creation
+- `-s, --skip-certs` - Skip TLS certificate generation
+- `-p, --skip-prereq` - Skip prerequisites installation
+- `-d, --skip-deploy` - Skip Vault cluster deployment
+- `-i, --skip-postinstall` - Skip post-installation tasks
+- `-t, --test-connection` - Only test connection (oc cluster-info)
+- `-h, --help` - Display help message
+
+**Examples:**
+```bash
+# Deploy both unsealer vault and data vault
+./setup-vault-cluster.sh config-unsealer-vault.json config-vault-1.json
+
+# Deploy unsealer vault only
+./setup-vault-cluster.sh config-unsealer-vault.json
+
+# Deploy data vault only
+./setup-vault-cluster.sh config-vault-1.json
+
+# Test cluster connectivity
+./setup-vault-cluster.sh -t config-unsealer-vault.json
+
+# Skip certificate generation (if certificates already exist)
+./setup-vault-cluster.sh -s config-unsealer-vault.json config-vault-1.json
+
+# Skip prerequisites (if already deployed cluster-wide)
+./setup-vault-cluster.sh -p config-vault-1.json
+
+# Skip post-installation tasks
+./setup-vault-cluster.sh -i config-unsealer-vault.json config-vault-1.json
+```
+
+**Processing Order:**
+1. Validates all config files
+2. Creates namespaces/routes for all vaults (once)
+3. Generates TLS certificates for each vault
+4. Deploys prerequisites (once, cluster-wide)
+5. Deploys each vault cluster sequentially
+6. Runs post-installation for each vault
+7. Displays status for all deployed vaults
 
 ### Individual Deployment Steps
 
@@ -130,7 +176,9 @@ Run the full deployment for all configured vaults:
 #### 3. Deploy Prerequisites
 
 ```bash
-./deploy-prerequisites.sh config-unsealer-vault.json
+# Prerequisites are cluster-wide and only need to be deployed once
+# Uses config-bash.json by default (no parameters needed)
+./deploy-prerequisites.sh
 ```
 
 #### 4. Deploy Vault Cluster
