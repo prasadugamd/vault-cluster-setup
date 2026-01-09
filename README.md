@@ -1,202 +1,345 @@
 # Vault Cluster Setup Automation
 
-Complete automation solution for deploying HashiCorp Vault cluster on remote Kubernetes infrastructure.
+Complete automation solution for deploying HashiCorp Vault clusters on OpenShift/Kubernetes with support for unsealer vault pattern and transit auto-unseal.
 
 ## Overview
 
-This project automates the deployment of HashiCorp Vault cluster on remote machine `jenkins@ilceatm137` with the following components:
+This project automates the deployment of HashiCorp Vault clusters with the following features:
+- **Multiple vault cluster support** (unsealer-vault + data vaults)
+- **Transit auto-unseal** pattern for enhanced security
+- **Automated initialization and unsealing** with built-in functions
+- **TLS certificate generation** for secure communication
+- **User policy management** with admin policy assignment
+- **OpenShift Route creation** via Helm chart integration
+
+## Architecture
+
+### Unsealer Vault Pattern
+- **Unsealer Vault**: Provides transit encryption for auto-unsealing data vaults
+- **Data Vaults**: Use transit auto-unseal for automated unsealing
+- **Benefits**: No manual unseal needed, enhanced security, scalability
+
+### Supported Components
 - Prerequisites setup (hashicorp-vault-helm-pre-requisite)
-- Vault cluster deployment (HashiCorp-Vault-Cluster)
-- Post-installation configuration (hashicorp-vault-post-install-helm-1.1.6)
+- Vault cluster deployment (fndsec-hashicorp-vault-helm-1.6.0)
+- Post-installation configuration (hashicorp-vault-post-install-helm-1.1.7)
 
 ## Prerequisites
 
-- PowerShell 5.1 or later
-- SSH access to remote machine (jenkins@ilceatm137)
+- Bash shell environment
+- SSH access to Jenkins server (jenkins@ilceatm203)
 - Remote machine must have:
-  - kubectl configured
+  - OpenShift CLI (oc) configured
   - Helm 3.x installed
-  - Access to Kubernetes cluster
+  - Access to OpenShift/Kubernetes cluster
+  - jq for JSON parsing
 
 ## Project Structure
 
 ```
 vault-cluster-setup/
-├── config.json                      # Configuration file
-├── setup-vault-cluster.ps1          # Main orchestration script
-├── Deploy-Prerequisites.ps1         # Prerequisites deployment
-├── Deploy-VaultCluster.ps1          # Vault cluster deployment
-├── Deploy-PostInstall.ps1           # Post-installation tasks
+├── config-unsealer-vault.json       # Unsealer vault configuration
+├── config-vault-1.json              # Data vault configuration
+├── config.example.json              # Configuration template
+├── setup-vault-cluster.sh           # Main orchestration script
+├── create-namespace-route.sh        # Namespace creation (routes via Helm)
+├── generate-certificates.sh         # TLS certificate generation
+├── deploy-prerequisites.sh          # Prerequisites deployment
+├── deploy-vault-cluster.sh          # Vault cluster deployment + init functions
+├── deploy-post-install.sh           # Post-installation + user policy management
 ├── modules/
-│   ├── SSHConnection.psm1          # SSH connection management
-│   └── Logger.psm1                 # Logging utilities
-└── logs/                           # Deployment logs (auto-created)
+│   ├── logger.sh                    # Bash logging utilities
+│   ├── Logger.psm1                  # PowerShell logging (legacy)
+│   └── SSHConnection.psm1           # SSH connection (legacy)
+└── logs/                            # Deployment logs (auto-created)
 ```
 
 ## Configuration
 
-Edit `config.json` to customize deployment:
+### Configuration Files
+
+The project uses JSON configuration files for each vault cluster:
+
+- **config-unsealer-vault.json**: Configuration for unsealer vault (transit encryption provider)
+- **config-vault-1.json**: Configuration for data vault cluster
+- **config.example.json**: Template for creating new configurations
+
+### Configuration Structure
 
 ```json
 {
-  "remote": {
-    "host": "ilceatm137",
-    "username": "jenkins",
-    "password": "Unix11!",
-    "basePath": "/jenkins/jenkins/PRASA"
+  "directories": {
+    "basePath": "/jenkins_home/vault-cluster-setup",
+    "prerequisite": "hashicorp-vault-helm-pre-requisite",
+    "cluster": "fndsec-hashicorp-vault-helm-1.6.0/unsealer-hashicorp-vault",
+    "postInstall": "hashicorp-vault-post-install-helm-1.1.7"
   },
   "deployment": {
-    "namespace": "vault",
-    "releaseName": "vault",
+    "namespace": "unsealer-vault",
+    "releaseName": "unsealer-hashicorp-vault",
+    "routeName": "vault",
+    "routeUrl": "vault-unsealer-vault.apps.indelocpbmatm1059.ocpd.corp.amdocs.com",
     "helmTimeout": "10m"
+  },
+  "logging": {
+    "logDir": "logs",
+    "logLevel": "INFO"
   }
 }
 ```
+
+### Key Configuration Options
+
+- **basePath**: Base directory on remote server
+- **namespace**: OpenShift/Kubernetes namespace for vault
+- **releaseName**: Helm release name
+- **routeUrl**: Custom OpenShift route hostname (optional)
+- **helmTimeout**: Helm deployment timeout
 
 ## Usage
 
 ### Complete Setup
 
-Run the full deployment with all steps:
+Run the full deployment for all configured vaults:
 
-```powershell
-.\setup-vault-cluster.ps1
+```bash
+./setup-vault-cluster.sh config-unsealer-vault.json config-vault-1.json
 ```
 
-### Test Connection
+### Individual Deployment Steps
 
-Test SSH connectivity before deployment:
+#### 1. Create Namespaces
 
-```powershell
-.\setup-vault-cluster.ps1 -TestConnection
+```bash
+# Creates namespaces (routes now created by Helm chart)
+./create-namespace-route.sh config-unsealer-vault.json config-vault-1.json
 ```
 
-### Selective Deployment
+#### 2. Generate TLS Certificates
 
-Skip specific steps:
-
-```powershell
-# Skip certificate generation (use existing certificates)
-.\setup-vault-cluster.ps1 -SkipCertificates
-
-# Skip prerequisites
-.\setup-vault-cluster.ps1 -SkipPrerequisites
-
-# Skip cluster deployment
-.\setup-vault-cluster.ps1 -SkipClusterDeploy
-
-# Skip post-installation
-.\setup-vault-cluster.ps1 -SkipPostInstall
+```bash
+# Generate certificates for each vault cluster
+./generate-certificates.sh config-unsealer-vault.json
+./generate-certificates.sh config-vault-1.json
 ```
 
-### Individual Steps
+#### 3. Deploy Prerequisites
 
-Run deployment steps independently:
+```bash
+./deploy-prerequisites.sh config-unsealer-vault.json
+```
 
-```powershell
-# Generate certificates only
-.\Generate-Certificates.ps1
+#### 4. Deploy Vault Cluster
 
-# Prerequisites only
-.\Deploy-Prerequisites.ps1
+```bash
+# Deploys vault cluster and creates OpenShift route via Helm
+./deploy-vault-cluster.sh config-unsealer-vault.json config-vault-1.json
+```
 
-# Vault cluster only
-.\Deploy-VaultCluster.ps1
+#### 5. Initialize and Unseal Vaults
 
-# Post-install only
-.\Deploy-PostInstall.ps1
+Use the built-in functions in deploy-vault-cluster.sh:
+
+```bash
+# Example script to initialize unsealer vault
+source modules/logger.sh
+initialize_logger "logs" "INFO"
+
+# Initialize unsealer vault
+initialize_unsealer_vault "unsealer-vault" "$LOG_FILE" "/tmp/vault-init-keys.json"
+
+# Enable basic features
+enable_vault_features "unsealer-vault" "$LOG_FILE" "/tmp/vault-init-keys.json"
+
+# Setup transit auto-unseal for vault-1
+setup_transit_autounseal "unsealer-vault" "vault-1" "$LOG_FILE" "/tmp/vault-init-keys.json" "autounseal_1"
+
+# Initialize data vault with transit auto-unseal
+initialize_data_vault "vault-1" "$LOG_FILE" "/tmp/vault1-init-keys.json"
+
+# Enable features on data vault
+enable_vault_features "vault-1" "$LOG_FILE" "/tmp/vault1-init-keys.json"
+```
+
+#### 6. Deploy Post-Installation
+
+```bash
+./deploy-post-install.sh config-unsealer-vault.json
+./deploy-post-install.sh config-vault-1.json
+```
+
+#### 7. Update User Policies (Optional)
+
+Use the built-in function to grant admin access:
+
+```bash
+# Example: Update user policies after post-install
+source modules/logger.sh
+initialize_logger "logs" "INFO"
+
+ROOT_TOKEN="<your-root-token>"
+update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 ```
 
 ## Deployment Steps
 
-### 0. TLS Certificate Generation (NEW!)
-- Generates CA certificate and private key
-- Creates server certificates with proper SANs
+### 0. Namespace Creation
+- Creates OpenShift/Kubernetes namespaces
+- **Route creation disabled** - routes are now created by Helm chart during cluster deployment
+- Validates namespace creation
+
+### 1. TLS Certificate Generation
+- Generates CA certificate and private key (4096-bit RSA)
+- Creates server certificates with proper SANs for Kubernetes
 - Includes all Vault service DNS names
 - Creates Kubernetes TLS secrets automatically
 - Copies certificates to cluster directory
 - Validity: 10 years
 
-### 1. Prerequisites Deployment
-- Creates namespace
-- **Creates OpenShift Route** for external access (passthrough TLS)
+**Certificate SANs include:**
+- `vault`, `vault.<namespace>`, `vault.<namespace>.svc.cluster.local`
+- `vault-0.vault-internal.<namespace>.svc.cluster.local`
+- `vault-1.vault-internal.<namespace>.svc.cluster.local`
+- `vault-2.vault-internal.<namespace>.svc.cluster.local`
+- `vault-active.<namespace>.svc.cluster.local`
+- `localhost`, `127.0.0.1`
+
+### 2. Prerequisites Deployment
 - Installs required Kubernetes resources
 - Sets up secrets and ConfigMaps
 - Configures storage classes
 - Deploys supporting services
 
-### 2. Vault Cluster Deployment
-- Deploys Vault StatefulSet
+### 3. Vault Cluster Deployment
+- Deploys Vault StatefulSet (3 replicas with Raft storage)
 - Configures TLS certificates
 - Sets up Vault services
-- Configures high availability
+- **Creates OpenShift Route** via Helm chart (passthrough TLS)
+- Configures high availability with Raft consensus
 
-### 3. Post-Installation
-- Applies additional configurations
-- Verifies OpenShift Route and displays access URL
-- Sets up monitoring and alerts
-- Configures backup jobs
-- Validates deployment
+**Route creation:**
+- Routes are automatically created by Helm using `--set server.route.enabled=true`
+- Custom hostname via `--set server.route.host=<routeUrl>`
+- Passthrough TLS termination
+- Targets `vault-active` service
+
+### 4. Vault Initialization (NEW Functions!)
+
+**Built-in automation functions in deploy-vault-cluster.sh:**
+
+#### `initialize_unsealer_vault(namespace, log_file, init_file)`
+- Initializes vault with 5 key shares, 3 threshold
+- Unseals all 3 vault pods automatically
+- Logs in with root token
+- Verifies Raft cluster peers
+- Saves keys to JSON file
+
+#### `setup_transit_autounseal(unsealer_ns, data_ns, log_file, init_file, transit_key)`
+- Enables transit secrets engine on unsealer vault
+- Creates transit encryption key
+- Generates autounseal policy and token
+- Creates `vault-transit-token-secret` in data vault namespace
+- Configures transit auto-unseal for data vaults
+
+#### `initialize_data_vault(namespace, log_file, init_file)`
+- Initializes data vault with recovery keys (transit auto-unseal)
+- 5 recovery key shares, 3 threshold
+- Auto-unsealed via transit engine
+- Saves recovery keys and root token
+
+#### `enable_vault_features(namespace, log_file, init_file)`
+- Enables KV v2 secrets engine at path `/secret`
+- Extensible for additional features
+
+### 5. Post-Installation Configuration
+- Applies Helm post-install jobs
+- Configures Kubernetes authentication
+- Creates admin policies and roles
+- Sets up userpass authentication
+- Creates vault-secrets-migration-user and vault-secrets-management-user
+- Enables audit logging
+
+### 6. User Policy Management (NEW Function!)
+
+**Built-in automation function in deploy-post-install.sh:**
+
+#### `update_user_admin_policies(namespace, root_token, log_file)`
+- Updates user policies from `sm-secret-policy` to `vault-admin-policy`
+- Grants full admin access to both users:
+  - vault-secrets-migration-user
+  - vault-secrets-management-user
+- Provides capabilities: `create, read, update, delete, list, sudo` on all paths
+- Enables full Vault UI access
 
 ## Remote Directories
 
-The automation works with these directories on jenkins@ilceatm137:
+The automation works with these directories on jenkins@ilceatm203:
 
 ```
-/jenkins/jenkins/PRASA/
+/jenkins_home/vault-cluster-setup/
 ├── hashicorp-vault-helm-pre-requisite/
-├── HashiCorp-Vault-Cluster/
-└── hashicorp-vault-post-install-helm-1.1.6/
+├── fndsec-hashicorp-vault-helm-1.6.0/
+│   ├── unsealer-hashicorp-vault/
+│   └── vault-cluster/
+├── hashicorp-vault-post-install-helm-1.1.7/
+│   ├── fndsec-hashicorp-vault-post-install-helm/      # Unsealer vault
+│   └── fndsec-hashicorp-vault-post-install-helm-vault1/ # Data vault
+├── unsealer-vault-certs/
+└── vault-1-certs/
 ```
 
 ## Certificate Management
 
-**NEW: Automatic TLS Certificate Generation!**
+**Automatic TLS Certificate Generation**
 
-The script now automatically generates TLS certificates:
+The script automatically generates TLS certificates for each vault cluster:
 - ✅ **Generates CA certificate** (4096-bit RSA)
 - ✅ **Creates server certificates** with proper SANs for Kubernetes
-- ✅ **Includes all service DNS names** (vault, vault-0, vault-1, vault-2, etc.)
-- ✅ **Creates Kubernetes TLS secret** in vault namespace
+- ✅ **Includes all service DNS names** (vault, vault-0, vault-1, vault-2, vault-active, vault-internal)
+- ✅ **Creates Kubernetes TLS secret** (`vault-server-tls`) in vault namespace
 - ✅ **Copies to cluster directory** automatically
 - ✅ **10-year validity** period
 
 **Certificate SANs include:**
-- `vault`, `vault.vault`, `vault.vault.svc.cluster.local`
-- `vault-0.vault-internal.vault.svc.cluster.local`
-- `vault-1.vault-internal.vault.svc.cluster.local`
-- `vault-2.vault-internal.vault.svc.cluster.local`
+- `vault`, `vault.<namespace>`, `vault.<namespace>.svc.cluster.local`
+- `vault-0.vault-internal.<namespace>.svc.cluster.local`
+- `vault-1.vault-internal.<namespace>.svc.cluster.local`
+- `vault-2.vault-internal.<namespace>.svc.cluster.local`
+- `vault-active.<namespace>.svc.cluster.local`
+- `vault-internal.<namespace>.svc.cluster.local`
 - `localhost`, `127.0.0.1`
 
-**Generated files:**
-- `/jenkins/jenkins/PRASA/vault-certs/ca.crt` - CA certificate
-- `/jenkins/jenkins/PRASA/vault-certs/vault.crt` - Server certificate
-- `/jenkins/jenkins/PRASA/vault-certs/vault.key` - Private key
+**Generated files per vault cluster:**
+- `/jenkins_home/vault-cluster-setup/<namespace>-certs/ca.crt` - CA certificate
+- `/jenkins_home/vault-cluster-setup/<namespace>-certs/vault.crt` - Server certificate
+- `/jenkins_home/vault-cluster-setup/<namespace>-certs/vault.key` - Private key
 
-**To use existing certificates instead:**
-```powershell
-.\setup-vault-cluster.ps1 -SkipCertificates
+**Kubernetes Secret:**
+```bash
+# View certificate
+oc get secret vault-server-tls -n <namespace> -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text
 ```
 
 ## OpenShift Route Configuration
 
-**Automatic OpenShift Route Creation!**
+**Automatic OpenShift Route Creation via Helm**
 
-The prerequisites script now automatically creates an OpenShift Route for external Vault access **before** deploying the cluster:
+Routes are now created automatically by the Helm chart during vault cluster deployment:
 
-**Deployment Order:**
-1. ✅ Generate TLS certificates
-2. ✅ Create namespace
-3. ✅ **Create OpenShift Route** ← Created during prerequisites phase
-4. ✅ Install prerequisites (Helm charts)
-5. ✅ Deploy Vault cluster
-6. ✅ Verify route and display access URL
-
-- ✅ **Creates Route early** - before Vault cluster deployment
+**Key Features:**
+- ✅ **Created by Helm** during `deploy-vault-cluster.sh`
 - ✅ **Passthrough TLS** termination (Vault handles TLS)
-- ✅ **Auto-generated hostname** by OpenShift router
-- ✅ **Secure HTTPS only** (no HTTP redirect)
-- ✅ **Service Target:** `vault-active` (will be available after cluster deployment)
+- ✅ **Custom hostname** support via `routeUrl` in config
+- ✅ **Service Target:** `vault-active` (active Vault node)
+- ✅ **Port:** 8200 (HTTPS)
+
+**Deployment:**
+Routes are created via Helm flags:
+```bash
+helm upgrade --install <release> <chart> \
+  --set server.route.enabled=true \
+  --set server.route.host=<routeUrl>
+```
 
 **Route Specifications:**
 - **Service Target:** `vault-active` (active Vault node)
@@ -207,32 +350,27 @@ The prerequisites script now automatically creates an OpenShift Route for extern
 **Accessing Vault via Route:**
 ```bash
 # Get the route URL
-oc get route vault -n vault -o jsonpath='{.spec.host}'
+oc get route vault -n <namespace> -o jsonpath='{.spec.host}'
 
-# Or describe for full details
-oc describe route vault -n vault
+# Or from config
+# unsealer-vault: vault-unsealer-vault.apps.indelocpbmatm1059.ocpd.corp.amdocs.com
+# vault-1: vault-vault-1.apps.indelocpbmatm1059.ocpd.corp.amdocs.com
 
 # Access Vault UI/API
 curl -k https://<route-hostname>/v1/sys/health
+
+# Vault UI
+https://<route-hostname>/ui/
 ```
 
 **Manual Route Creation (if needed):**
 ```bash
-# Using template file
-kubectl apply -f vault-route-template.yaml
-
-# Or create directly
+# Create route directly
 oc create route passthrough vault \
   --service=vault-active \
   --port=8200 \
-  --namespace=vault
-```
-
-**Custom Hostname (optional):**
-Edit [vault-route-template.yaml](vault-route-template.yaml) and uncomment the `host` field:
-```yaml
-spec:
-  host: vault.your-custom-domain.com
+  --hostname=<custom-hostname> \
+  --namespace=<namespace>
 ```
 
 ## Logging
@@ -246,85 +384,302 @@ Log levels: DEBUG, INFO, WARN, ERROR
 
 ## Post-Deployment
 
-After successful deployment:
+After successful deployment, the vaults are ready for initialization and configuration.
 
-1. **Initialize Vault**
+### Unsealer Vault Setup
+
+1. **Initialize Unsealer Vault** (automated via functions)
    ```bash
-   kubectl exec -n vault vault-0 -- vault operator init
+   # Using built-in function
+   initialize_unsealer_vault "unsealer-vault" "$LOG_FILE" "/tmp/vault-init-keys.json"
+   ```
+   
+   Or manually:
+   ```bash
+   oc exec vault-0 -n unsealer-vault -- vault operator init \
+     -key-shares=5 -key-threshold=3 -format=json | tee /tmp/vault-init-keys.json
    ```
    Save the unseal keys and root token securely!
 
-2. **Unseal Vault**
+2. **Unseal Unsealer Vault** (automated via function or manual)
    ```bash
-   kubectl exec -n vault vault-0 -- vault operator unseal <key1>
-   kubectl exec -n vault vault-0 -- vault operator unseal <key2>
-   kubectl exec -n vault vault-0 -- vault operator unseal <key3>
-   ```
-
-3. **Check Status**
-   ```bash
-   kubectl exec -n vault vault-0 -- vault status
-   ```
-
-4. **Access Vault UI**
-   ```bash
-   # Via OpenShift Route (automatically created)
-   # Get the route URL
-   kubectl get route vault -n vault -o jsonpath='{.spec.host}'
-   # Access: https://<route-host>
+   # Extract keys
+   KEY1=$(jq -r '.unseal_keys_b64[0]' /tmp/vault-init-keys.json)
+   KEY2=$(jq -r '.unseal_keys_b64[1]' /tmp/vault-init-keys.json)
+   KEY3=$(jq -r '.unseal_keys_b64[2]' /tmp/vault-init-keys.json)
    
-   # Or via port-forward
-   kubectl port-forward -n vault svc/vault 8200:8200
+   # Unseal all pods
+   for pod in vault-0 vault-1 vault-2; do
+     oc exec $pod -n unsealer-vault -- vault operator unseal $KEY1
+     oc exec $pod -n unsealer-vault -- vault operator unseal $KEY2
+     oc exec $pod -n unsealer-vault -- vault operator unseal $KEY3
+   done
    ```
-   Then open: https://localhost:8200
+
+3. **Enable Transit Auto-Unseal** (automated via function)
+   ```bash
+   setup_transit_autounseal "unsealer-vault" "vault-1" "$LOG_FILE" \
+     "/tmp/vault-init-keys.json" "autounseal_1"
+   ```
+   
+   This automatically:
+   - Enables transit secrets engine
+   - Creates transit encryption key
+   - Creates autounseal policy and token
+   - Creates vault-transit-token-secret in vault-1 namespace
+
+### Data Vault Setup (vault-1)
+
+1. **Initialize Data Vault with Transit Auto-Unseal** (automated)
+   ```bash
+   initialize_data_vault "vault-1" "$LOG_FILE" "/tmp/vault1-init-keys.json"
+   ```
+   
+   Or manually:
+   ```bash
+   oc exec vault-0 -n vault-1 -- vault operator init \
+     -recovery-shares=5 -recovery-threshold=3 -format=json | tee /tmp/vault1-init-keys.json
+   ```
+   
+   **Note:** With transit auto-unseal, vault automatically unseals. No manual unseal needed!
+
+2. **Enable Basic Features** (automated)
+   ```bash
+   enable_vault_features "vault-1" "$LOG_FILE" "/tmp/vault1-init-keys.json"
+   ```
+
+3. **Run Post-Installation**
+   ```bash
+   ./deploy-post-install.sh config-vault-1.json
+   ```
+
+4. **Update User Policies** (automated)
+   ```bash
+   ROOT_TOKEN=$(jq -r '.root_token' /tmp/vault1-init-keys.json)
+   update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
+   ```
+   
+   This grants both users full admin access:
+   - vault-secrets-migration-user
+   - vault-secrets-management-user
+
+### Check Status
+
+```bash
+# Check unsealer vault
+oc exec vault-0 -n unsealer-vault -- vault status
+
+# Check data vault (auto-unsealed)
+oc exec vault-0 -n vault-1 -- vault status
+
+# Check Raft peers
+ROOT_TOKEN=$(jq -r '.root_token' /tmp/vault-init-keys.json)
+oc exec vault-0 -n unsealer-vault -- env VAULT_TOKEN=$ROOT_TOKEN vault operator raft list-peers
+```
+
+### Access Vault UI
+
+```bash
+# Get route URLs
+oc get route vault -n unsealer-vault -o jsonpath='{.spec.host}'
+oc get route vault -n vault-1 -o jsonpath='{.spec.host}'
+
+# Access Vault UI
+# Unsealer: https://vault-unsealer-vault.apps.indelocpbmatm1059.ocpd.corp.amdocs.com/ui/
+# Vault-1: https://vault-vault-1.apps.indelocpbmatm1059.ocpd.corp.amdocs.com/ui/
+```
+
+**Login credentials:**
+- **Root token**: From init files
+- **vault-secrets-management-user**: Check secret `vault-secrets-management-user-secret`
+- **vault-secrets-migration-user**: Check secret `vault-secrets-migration-user-secret`
+
+```bash
+# Get user passwords
+oc get secret vault-secrets-management-user-secret -n vault-1 -o jsonpath='{.data.password}' | base64 -d
+oc get secret vault-secrets-migration-user-secret -n vault-1 -o jsonpath='{.data.password}' | base64 -d
+```
 
 ## Troubleshooting
 
-### SSH Connection Issues
-```powershell
-# Test connectivity
-.\setup-vault-cluster.ps1 -TestConnection
+### Pod Status Issues
+```bash
+# Check pod status
+oc get pods -n unsealer-vault
+oc get pods -n vault-1
 
-# Check SSH service on remote
-ssh jenkins@ilceatm137 "systemctl status sshd"
+# Get pod logs
+oc logs -n unsealer-vault vault-0
+oc logs -n vault-1 vault-0
+
+# Describe pod for events
+oc describe pod -n unsealer-vault vault-0
+```
+
+### Vault Sealed Issues
+```bash
+# Check vault status
+oc exec vault-0 -n unsealer-vault -- vault status
+
+# For unsealer vault: manually unseal
+oc exec vault-0 -n unsealer-vault -- vault operator unseal <key>
+
+# For data vault: check transit token secret
+oc get secret vault-transit-token-secret -n vault-1
 ```
 
 ### Helm Deployment Failures
 ```bash
 # Check Helm releases
-helm list -n vault
+helm list -n unsealer-vault
+helm list -n vault-1
 
-# Get pod logs
-kubectl logs -n vault <pod-name>
-
-# Describe pod for events
-kubectl describe pod -n vault <pod-name>
+# Get release details
+helm status vault -n unsealer-vault
+helm get values vault -n unsealer-vault
 ```
 
 ### Certificate Issues
 ```bash
 # Verify TLS secrets
-kubectl get secrets -n vault
+oc get secrets vault-server-tls -n unsealer-vault
+oc get secrets vault-server-tls -n vault-1
 
 # Check certificate validity
-kubectl get secret vault-tls -n vault -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text
+oc get secret vault-server-tls -n unsealer-vault -o jsonpath='{.data.tls\.crt}' | \
+  base64 -d | openssl x509 -text -noout
+
+# Verify certificate SANs
+oc get secret vault-server-tls -n unsealer-vault -o jsonpath='{.data.tls\.crt}' | \
+  base64 -d | openssl x509 -text -noout | grep -A1 "Subject Alternative Name"
+```
+
+### Route Issues
+```bash
+# Check route status
+oc get route vault -n unsealer-vault
+oc describe route vault -n unsealer-vault
+
+# Test route connectivity
+curl -k https://$(oc get route vault -n unsealer-vault -o jsonpath='{.spec.host}')/v1/sys/health
+```
+
+### Post-Install Job Issues
+```bash
+# Check post-install job status
+oc get jobs -n vault-1 | grep post-install
+oc get pods -n vault-1 | grep post-install
+
+# Get job logs
+oc logs -n vault-1 <post-install-job-pod>
+
+# Delete and retry post-install
+helm uninstall vault-1-post-install -n vault-1
+oc delete job vault-1-post-install-job -n vault-1
+./deploy-post-install.sh config-vault-1.json
+```
+
+### Transit Auto-Unseal Issues
+```bash
+# Check unsealer vault transit engine
+ROOT_TOKEN=$(jq -r '.root_token' /tmp/vault-init-keys.json)
+oc exec vault-0 -n unsealer-vault -- env VAULT_TOKEN=$ROOT_TOKEN vault secrets list
+
+# Verify transit key exists
+oc exec vault-0 -n unsealer-vault -- env VAULT_TOKEN=$ROOT_TOKEN vault list transit/keys
+
+# Check transit token secret in data vault
+oc get secret vault-transit-token-secret -n vault-1 -o yaml
+```
+
+### User Policy Issues
+```bash
+# Check if users exist
+oc exec vault-0 -n vault-1 -- env VAULT_TOKEN=$ROOT_TOKEN vault list auth/userpass/users
+
+# Check user policies
+oc exec vault-0 -n vault-1 -- env VAULT_TOKEN=$ROOT_TOKEN \
+  vault read auth/userpass/users/vault-secrets-management-user
+
+# Check available policies
+oc exec vault-0 -n vault-1 -- env VAULT_TOKEN=$ROOT_TOKEN vault policy list
+
+# Read policy content
+oc exec vault-0 -n vault-1 -- env VAULT_TOKEN=$ROOT_TOKEN \
+  vault policy read vault-admin-policy
+```
+
+## Logging
+
+All deployment activities are logged to:
+- Console output with INFO/WARN/ERROR levels
+- Log files in `logs/` directory
+- Format: `vault_<operation>_<namespace>_YYYYMMDD_HHmmss.log`
+
+**Log levels:** DEBUG, INFO, WARN, ERROR
+
+**View logs:**
+```bash
+# List recent logs
+ls -lt logs/ | head -10
+
+# Follow a specific log
+tail -f logs/vault_cluster_deployment_unsealer-vault_*.log
+
+# Search for errors
+grep -i error logs/*.log
+grep -i warn logs/*.log
 ```
 
 ## Security Notes
 
-- Store `config.json` securely (contains credentials)
+- **Store init files securely** (contain unseal keys and root tokens)
+  - `/tmp/vault-init-keys.json` (unsealer vault)
+  - `/tmp/vault1-init-keys.json` (data vault)
 - Use SSH key authentication instead of passwords when possible
 - Rotate passwords regularly
-- Store Vault unseal keys in secure location
-- Never commit credentials to version control
+- **Never commit credentials to version control**
+- Store Vault unseal keys in secure location (KMS, HSM, or secure vault)
+- Use transit auto-unseal for production (eliminates manual unsealing)
+- Regularly backup Vault data
+- Monitor audit logs
+- Implement proper RBAC policies
+
+## Best Practices
+
+### High Availability
+- Deploy 3+ vault pods for HA
+- Use Raft storage backend for consensus
+- Monitor Raft cluster health
+- Test failover scenarios
+
+### Security
+- Enable audit logging on all vaults
+- Use transit auto-unseal for data vaults
+- Implement least privilege policies
+- Regularly rotate tokens and credentials
+- Enable MFA for sensitive operations
+
+### Monitoring
+- Monitor vault seal status
+- Track Raft cluster health
+- Monitor certificate expiration
+- Set up alerts for critical events
+
+### Backup & Recovery
+- Backup Raft snapshots regularly
+- Test restore procedures
+- Document recovery procedures
+- Store backups securely
 
 ## Support
 
 For issues or questions:
 1. Check log files in `logs/` directory
 2. Review deployment output
-3. Verify remote machine accessibility
-4. Check Kubernetes cluster health
+3. Verify OpenShift cluster health
+4. Check Helm releases and pod status
+5. Review troubleshooting section
 
 ## License
 
