@@ -1,5 +1,9 @@
 # Vault Cluster Setup Automation
 
+**Author:** Prasadu Gamini
+
+## Objective
+
 Complete automation solution for deploying HashiCorp Vault clusters on OpenShift/Kubernetes with support for unsealer vault pattern and transit auto-unseal.
 
 ## Overview
@@ -216,6 +220,13 @@ update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 - Sets up Vault services
 - **Creates OpenShift Route** via Helm chart (passthrough TLS)
 - Configures high availability with Raft consensus
+- **Validates required secrets** before deployment
+
+**Secret validation:**
+- For unsealer-vault: Only checks for `vault-server-tls` secret
+- For data vaults: Checks for both `vault-server-tls` AND `vault-transit-token-secret`
+- Deployment fails if required secrets are missing
+- Provides clear error messages with remediation steps
 
 **Route creation:**
 - Routes are automatically created by Helm using `--set server.route.enabled=true`
@@ -252,6 +263,27 @@ update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 - Extensible for additional features
 
 ### 5. Post-Installation Configuration
+
+**Dynamic configuration based on namespace:**
+
+The deploy-post-install.sh script automatically detects the vault type (unsealer vs data vault) and configures the post-installation accordingly:
+
+**For unsealer-vault:**
+- Sets `deploymentMode: unsealerVaultClusterSetup`
+- Sets `vaultClusterNamespaces: vault-1` (managed data vaults)
+- Skips user policy updates (not applicable)
+
+**For data vaults (vault-1, vault-2, etc.):**
+- Sets `deploymentMode: vaultClusterSetup`
+- Sets `unsealerVaultUrl: https://vault-active.unsealer-vault.svc.cluster.local:8200`
+- Updates user admin policies (if root token provided)
+
+**Common Helm chart approach:**
+- Both vault types use the same Helm chart package (`.tgz`)
+- Values are dynamically overridden using `--set` flags
+- No need for separate post-install directories
+
+**Configuration applied:**
 - Applies Helm post-install jobs
 - Configures Kubernetes authentication
 - Creates admin policies and roles
@@ -259,17 +291,42 @@ update_user_admin_policies "vault-1" "$ROOT_TOKEN" "$LOG_FILE"
 - Creates vault-secrets-migration-user and vault-secrets-management-user
 - Enables audit logging
 
-### 6. User Policy Management (NEW Function!)
+### 6. User Policy Management (NEW Feature!)
 
-**Built-in automation function in deploy-post-install.sh:**
+**Automated user policy updates for data vaults:**
 
-#### `update_user_admin_policies(namespace, root_token, log_file)`
-- Updates user policies from `sm-secret-policy` to `vault-admin-policy`
-- Grants full admin access to both users:
+The deploy-post-install.sh script can automatically update user policies when provided with a root token.
+
+**Usage:**
+```bash
+# Method 1: Pass root token as argument
+./deploy-post-install.sh config-vault-1.json hvs.xxxxxxxxxxxxx
+
+# Method 2: Use environment variable
+export VAULT_ROOT_TOKEN=hvs.xxxxxxxxxxxxx
+./deploy-post-install.sh config-vault-1.json
+```
+
+**What it does:**
+- ✅ Only runs for data vaults (skips unsealer-vault)
+- ✅ Checks if Vault is initialized
+- ✅ Verifies vault-admin-policy exists
+- ✅ Checks if userpass auth is enabled
+- ✅ Updates both users from `sm-secret-policy` to `vault-admin-policy`:
   - vault-secrets-migration-user
   - vault-secrets-management-user
-- Provides capabilities: `create, read, update, delete, list, sudo` on all paths
-- Enables full Vault UI access
+- ✅ Grants full admin access: `create, read, update, delete, list, sudo` on all paths
+- ✅ Enables full Vault UI access
+- ✅ Verifies policy updates
+
+**Manual policy update (if needed):**
+```bash
+ROOT_TOKEN="hvs.xxxxxxxxxxxxx"
+
+oc exec vault-0 -n vault-1 -- sh -c "export VAULT_TOKEN=$ROOT_TOKEN ; \
+  vault write auth/userpass/users/vault-secrets-migration-user policies='vault-admin-policy' ; \
+  vault write auth/userpass/users/vault-secrets-management-user policies='vault-admin-policy'"
+```
 
 ## Remote Directories
 
@@ -280,13 +337,15 @@ The automation works with these directories on jenkins@ilceatm203:
 ├── hashicorp-vault-helm-pre-requisite/
 ├── fndsec-hashicorp-vault-helm-1.6.0/
 │   ├── unsealer-hashicorp-vault/
-│   └── vault-cluster/
+│   └── hashicorp-vault/
 ├── hashicorp-vault-post-install-helm-1.1.7/
-│   ├── fndsec-hashicorp-vault-post-install-helm/      # Unsealer vault
-│   └── fndsec-hashicorp-vault-post-install-helm-vault1/ # Data vault
+│   ├── fndsec-hashicorp-vault-post-install-helm/  # Common Helm chart (used by all vaults)
+│   └── fndsec-hashicorp-vault-post-install-helm-1.1.7.tgz  # Packaged chart
 ├── unsealer-vault-certs/
 └── vault-1-certs/
 ```
+
+**Note:** Both unsealer-vault and data vaults use the same post-install Helm chart. The deploy-post-install.sh script dynamically configures values based on the namespace.
 
 ## Certificate Management
 
@@ -319,6 +378,49 @@ The script automatically generates TLS certificates for each vault cluster:
 # View certificate
 oc get secret vault-server-tls -n <namespace> -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text
 ```
+
+## Required Secrets for Deployment
+
+The deploy-vault-cluster.sh script validates that required secrets exist before deployment:
+
+### For Unsealer Vault
+**Required:**
+- `vault-server-tls` - TLS certificates (created by generate-certificates.sh)
+
+### For Data Vaults (vault-1, vault-2, etc.)
+**Required:**
+- `vault-server-tls` - TLS certificates (created by generate-certificates.sh)
+- `vault-transit-token-secret` - Transit token for auto-unseal (created by setup_transit_autounseal function)
+
+**How secrets are created:**
+
+1. **vault-server-tls** - Created automatically by generate-certificates.sh:
+   ```bash
+   ./generate-certificates.sh config-unsealer-vault.json
+   ./generate-certificates.sh config-vault-1.json
+   ```
+
+2. **vault-transit-token-secret** - Created by setup_transit_autounseal() function:
+   ```bash
+   # After unsealer vault is initialized and unsealed
+   setup_transit_autounseal "unsealer-vault" "vault-1" "$LOG_FILE" \
+     "/tmp/vault-init-keys.json" "autounseal_1"
+   ```
+   
+   Or manually:
+   ```bash
+   # Create transit token on unsealer vault first, then:
+   oc create secret generic vault-transit-token-secret \
+     --from-literal=token="<transit-token>" \
+     -n vault-1
+   ```
+
+**Validation behavior:**
+- Script checks for secrets before Helm deployment
+- For unsealer-vault: Skips vault-transit-token-secret check
+- For data vaults: Requires both secrets
+- Deployment fails with clear error if secrets are missing
+- Error message includes commands to create missing secrets
 
 ## OpenShift Route Configuration
 

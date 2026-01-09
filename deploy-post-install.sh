@@ -83,6 +83,9 @@ CONFIG_FILE="${1:-config.json}"
 # Check if config file exists
 if [[ ! -f "$CONFIG_FILE" ]]; then
     echo "ERROR: Configuration file not found: $CONFIG_FILE"
+    echo "Usage: $0 <config-file> [root-token]"
+    echo "Example: $0 config-vault-1.json hvs.xxxxx"
+    echo "Or set VAULT_ROOT_TOKEN environment variable"
     exit 1
 fi
 
@@ -108,6 +111,21 @@ write_section_header "VAULT POST-INSTALLATION"
 
 log_message "INFO" "Post-Install Directory: $POST_INSTALL_DIR"
 log_message "INFO" "Namespace: $NAMESPACE"
+
+# Determine deployment mode based on namespace
+if [[ "$NAMESPACE" == "unsealer-vault" ]]; then
+    DEPLOYMENT_MODE="unsealerVaultClusterSetup"
+    UNSEALER_VAULT_URL=""
+    VAULT_CLUSTER_NAMESPACES="vault-1"  # Data vaults managed by unsealer
+    log_message "INFO" "Deployment Mode: $DEPLOYMENT_MODE (unsealer vault)"
+    log_message "INFO" "Managed Vault Namespaces: $VAULT_CLUSTER_NAMESPACES"
+else
+    DEPLOYMENT_MODE="vaultClusterSetup"
+    UNSEALER_VAULT_URL="https://vault-active.unsealer-vault.svc.cluster.local:8200"
+    VAULT_CLUSTER_NAMESPACES=""  # Empty for data vaults
+    log_message "INFO" "Deployment Mode: $DEPLOYMENT_MODE (data vault with transit auto-unseal)"
+    log_message "INFO" "Unsealer Vault URL: $UNSEALER_VAULT_URL"
+fi
 
 # Navigate to post-install directory
 POST_INSTALL_PATH="$BASE_PATH/$POST_INSTALL_DIR"
@@ -151,6 +169,19 @@ if [[ ${#TGZ_CHARTS[@]} -gt 0 ]]; then
         HELM_ARGS+=("--values" "$POST_INSTALL_PATH/values.yaml")
     fi
     
+    # Override deployment mode dynamically
+    HELM_ARGS+=("--set" "vaultPostInstallJob.deploymentMode=$DEPLOYMENT_MODE")
+    
+    # Set vault cluster namespaces
+    if [[ -n "$VAULT_CLUSTER_NAMESPACES" ]]; then
+        HELM_ARGS+=("--set" "vaultPostInstallJob.vaultClusterNamespaces=$VAULT_CLUSTER_NAMESPACES")
+    fi
+    
+    # Set unsealer vault URL for data vaults
+    if [[ -n "$UNSEALER_VAULT_URL" ]]; then
+        HELM_ARGS+=("--set" "vaultClusterSecretEncryptionConfig.transit.unsealerVaultUrl=$UNSEALER_VAULT_URL")
+    fi
+    
     HELM_ARGS+=("--timeout" "$HELM_TIMEOUT" "--wait")
     
     # Install post-install chart
@@ -174,6 +205,19 @@ elif [[ -f "$POST_INSTALL_PATH/Chart.yaml" ]]; then
     if [[ -f "$POST_INSTALL_PATH/values.yaml" ]]; then
         log_message "INFO" "Using custom values.yaml"
         HELM_ARGS+=("--values" "$POST_INSTALL_PATH/values.yaml")
+    fi
+    
+    # Override deployment mode dynamically
+    HELM_ARGS+=("--set" "vaultPostInstallJob.deploymentMode=$DEPLOYMENT_MODE")
+    
+    # Set vault cluster namespaces
+    if [[ -n "$VAULT_CLUSTER_NAMESPACES" ]]; then
+        HELM_ARGS+=("--set" "vaultPostInstallJob.vaultClusterNamespaces=$VAULT_CLUSTER_NAMESPACES")
+    fi
+    
+    # Set unsealer vault URL for data vaults
+    if [[ -n "$UNSEALER_VAULT_URL" ]]; then
+        HELM_ARGS+=("--set" "vaultClusterSecretEncryptionConfig.transit.unsealerVaultUrl=$UNSEALER_VAULT_URL")
     fi
     
     HELM_ARGS+=("--timeout" "$HELM_TIMEOUT" "--wait")
@@ -240,6 +284,32 @@ if [[ -n "$POD_NAME" ]]; then
     
     log_message "INFO" "Vault status:"
     oc exec -n "$NAMESPACE" "$POD_NAME" -- vault status >> "$LOG_FILE" 2>&1 || log_message "WARN" "Vault may not be initialized yet"
+    
+    # Check if Vault is initialized and update user policies if ROOT_TOKEN is provided
+    if oc exec -n "$NAMESPACE" "$POD_NAME" -- vault status 2>&1 | grep -q "Initialized.*true"; then
+        log_message "INFO" "Vault is initialized"
+        
+        # Only update user policies for data vaults (not unsealer-vault)
+        if [[ "$NAMESPACE" != "unsealer-vault" ]]; then
+            # Check if ROOT_TOKEN is provided via environment variable or second argument
+            ROOT_TOKEN="${VAULT_ROOT_TOKEN:-${2:-}}"
+            
+            if [[ -n "$ROOT_TOKEN" ]]; then
+                log_message "INFO" "Root token provided, updating user admin policies..."
+                update_user_admin_policies "$NAMESPACE" "$ROOT_TOKEN" "$LOG_FILE"
+            else
+                log_message "INFO" "No root token provided, skipping user policy updates"
+                log_message "INFO" "To update user policies, run:"
+                log_message "INFO" "  export VAULT_ROOT_TOKEN=<your-root-token>"
+                log_message "INFO" "  $0 $CONFIG_FILE"
+                log_message "INFO" "Or provide as second argument: $0 $CONFIG_FILE <root-token>"
+            fi
+        else
+            log_message "INFO" "Unsealer vault detected - user policy updates not required"
+        fi
+    else
+        log_message "WARN" "Vault not initialized yet, skipping user policy updates"
+    fi
 else
     log_message "WARN" "No Vault pods found"
 fi
@@ -252,10 +322,18 @@ write_section_header "POST-INSTALLATION COMPLETED"
 log_message "INFO" "Log file: $(get_log_file_path)"
 log_message "INFO" ""
 log_message "INFO" "Next Steps:"
-log_message "INFO" "  1. Initialize Vault: oc exec -n $NAMESPACE $POD_NAME -- vault operator init"
-log_message "INFO" "  2. Save unseal keys and root token securely"
-log_message "INFO" "  3. Unseal Vault: oc exec -n $NAMESPACE $POD_NAME -- vault operator unseal <key>"
-log_message "INFO" "  4. Access Vault UI: https://$ROUTE_HOST (if route is configured)"
+if [[ -z "$ROOT_TOKEN" ]]; then
+    log_message "INFO" "  1. Initialize Vault: oc exec -n $NAMESPACE $POD_NAME -- vault operator init"
+    log_message "INFO" "  2. Save unseal keys and root token securely"
+    log_message "INFO" "  3. Unseal Vault: oc exec -n $NAMESPACE $POD_NAME -- vault operator unseal <key>"
+    log_message "INFO" "  4. Update user policies: $0 $CONFIG_FILE <root-token>"
+    log_message "INFO" "  5. Access Vault UI: https://$ROUTE_HOST (if route is configured)"
+else
+    log_message "INFO" "  ✓ User admin policies updated successfully"
+    log_message "INFO" "  - vault-secrets-migration-user: vault-admin-policy"
+    log_message "INFO" "  - vault-secrets-management-user: vault-admin-policy"
+    log_message "INFO" "  Access Vault UI: https://$ROUTE_HOST (if route is configured)"
+fi
 
 exit 0
 
