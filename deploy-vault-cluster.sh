@@ -283,6 +283,23 @@ deploy_vault_cluster() {
         log_message "WARN" "Run generate-certificates.sh first to create certificates and TLS secret"
     fi
     
+    # Check for transit token secret (required for data vaults with auto-unseal)
+    if [[ "$NAMESPACE" != "unsealer-vault" ]]; then
+        log_message "INFO" "Checking for transit token secret (required for auto-unseal)..."
+        if oc get secret vault-transit-token-secret -n "$NAMESPACE" >> "$LOG_FILE" 2>&1; then
+            log_message "INFO" "✓ Transit token secret 'vault-transit-token-secret' found in $NAMESPACE"
+        else
+            log_message "WARN" "✗ Transit token secret 'vault-transit-token-secret' NOT found in $NAMESPACE"
+            log_message "WARN" "This secret is required for transit auto-unseal"
+            log_message "WARN" "Create it using: setup_transit_autounseal function or manually:"
+            log_message "WARN" "  oc create secret generic vault-transit-token-secret --from-literal=token=<transit-token> -n $NAMESPACE"
+            log_message "ERROR" "Cannot proceed without transit token secret for data vault"
+            return 1
+        fi
+    else
+        log_message "INFO" "Unsealer vault deployment - transit token secret not required"
+    fi
+    
     # Detect Helm chart (either .tgz or unpacked Chart.yaml)
     log_message "INFO" "Detecting Helm chart..."
     CHART_SOURCE=""
