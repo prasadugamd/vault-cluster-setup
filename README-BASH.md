@@ -2,6 +2,22 @@
 
 Complete Bash automation solution for deploying HashiCorp Vault cluster on Kubernetes/OpenShift.
 
+## 🤖 NEW: AI-Powered Deployment Agent
+
+**Automate your Vault deployments with natural language commands!**
+
+This project now includes an intelligent deployment agent that understands natural language and can execute complex deployment workflows. Simply use:
+
+```
+@vault-deployment-agent Deploy complete vault cluster
+@vault-deployment-agent Troubleshoot the failed deployment
+@vault-deployment-agent Generate certificates for vault-1
+```
+
+📖 **Quick Start with Agent**: See [AGENT_USAGE_GUIDE.md](./AGENT_USAGE_GUIDE.md) and [AGENT_QUICK_REFERENCE.md](./AGENT_QUICK_REFERENCE.md)
+
+---
+
 ## Overview
 
 This project provides native Bash scripts for deploying HashiCorp Vault cluster directly on Linux/OpenShift environments. The scripts run natively without SSH overhead, making deployment faster and more reliable.
@@ -25,6 +41,11 @@ This project provides native Bash scripts for deploying HashiCorp Vault cluster 
 
 ```
 vault-cluster-setup/
+├── .github/
+│   └── agents/
+│       └── vault-deployment-agent.yaml  # AI agent configuration
+├── AGENT_USAGE_GUIDE.md             # Comprehensive agent guide
+├── AGENT_QUICK_REFERENCE.md         # Quick command reference
 ├── config.json                      # Configuration file (Bash version - no SSH config)
 ├── setup-vault-cluster.sh           # Main orchestration script
 ├── generate-certificates.sh         # TLS certificate generation
@@ -86,7 +107,36 @@ Edit `config.json` to customize deployment:
 
 ## Usage
 
-### Complete Setup
+### Using the AI Deployment Agent (Recommended)
+
+The easiest way to deploy and manage Vault clusters is using the AI agent:
+
+```
+# Deploy complete cluster
+@vault-deployment-agent Deploy complete vault cluster
+
+# Deploy individual vault
+@vault-deployment-agent Deploy unsealer vault
+
+# Troubleshoot issues
+@vault-deployment-agent Troubleshoot the failed deployment in vault-1
+
+# Manage configurations
+@vault-deployment-agent Create config for vault-2 namespace
+
+# Verify status
+@vault-deployment-agent Verify all pods are running in unsealer-vault
+```
+
+For comprehensive agent documentation, see:
+- [AGENT_USAGE_GUIDE.md](./AGENT_USAGE_GUIDE.md) - Complete usage guide with examples
+- [AGENT_QUICK_REFERENCE.md](./AGENT_QUICK_REFERENCE.md) - Quick command reference
+
+### Manual Script Usage
+
+You can also run the scripts manually:
+
+#### Complete Setup
 
 Run the full deployment with all steps:
 
@@ -94,7 +144,7 @@ Run the full deployment with all steps:
 ./setup-vault-cluster.sh
 ```
 
-### Test Connection
+#### Test Connection
 
 Test Kubernetes cluster connectivity:
 
@@ -121,6 +171,11 @@ Skip specific steps using command-line options:
 
 # Use custom config file
 ./setup-vault-cluster.sh --config custom-config.json
+```
+
+**Or use the agent**:
+```
+@vault-deployment-agent Deploy vault-1 but skip certificates
 ```
 
 ### Individual Steps
