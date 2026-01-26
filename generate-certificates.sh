@@ -245,6 +245,94 @@ log_message "INFO" "Verifying Kubernetes secret..."
 oc get secret vault-server-tls -n "$NAMESPACE" -o jsonpath='{.metadata.name}' >> "$LOG_FILE" 2>&1
 log_message "INFO" "Secret created successfully"
 
+# Step 8: Generate Java TrustStore (.jks)
+log_message "INFO" "Step 8/10: Generating Java TrustStore (.jks)..."
+if command -v keytool &> /dev/null; then
+    cd "$VAULT_CERT_DIR"
+    
+    # Generate JKS truststore with vault CA certificate
+    keytool -import \
+      -alias vault-ca \
+      -file "$CA_DIR/ca.crt" \
+      -keystore "vault-ca-truststore.jks" \
+      -storepass unix11 \
+      -noprompt \
+      >> "$LOG_FILE" 2>&1
+    
+    if [[ -f "vault-ca-truststore.jks" ]]; then
+        log_message "INFO" "✓ Java TrustStore (.jks) generated successfully"
+        log_message "INFO" "  File: $VAULT_CERT_DIR/vault-ca-truststore.jks"
+        log_message "INFO" "  Alias: vault-ca"
+        log_message "INFO" "  Password: unix11"
+    else
+        log_message "WARN" "✗ Failed to generate Java TrustStore (.jks)"
+    fi
+else
+    log_message "WARN" "keytool not found. Skipping Java TrustStore generation. Install Java JDK to generate .jks files."
+fi
+
+# Step 9: Generate PKCS12 TrustStore (.p12) from CA certificate (fallback method)
+log_message "INFO" "Step 9/10: Generating PKCS12 TrustStore (.p12) from CA certificate..."
+cd "$VAULT_CERT_DIR"
+
+# Check if we'll use keytool method (Step 10) or OpenSSL method
+if command -v keytool &> /dev/null && [[ -f "vault-ca-truststore.jks" ]]; then
+    log_message "INFO" "keytool available - will use importkeystore method in Step 10"
+    log_message "INFO" "Skipping OpenSSL PKCS12 generation (keytool method preferred)"
+else
+    log_message "INFO" "Using OpenSSL to generate PKCS12 (keytool not available)"
+    # Generate PKCS12 truststore from CA certificate
+    openssl pkcs12 -export \
+      -nokeys \
+      -in "$CA_DIR/ca.crt" \
+      -out "vault-ca.p12" \
+      -name vault-ca \
+      -passout pass:unix11 \
+      >> "$LOG_FILE" 2>&1
+
+    if [[ -f "vault-ca.p12" ]]; then
+        log_message "INFO" "✓ PKCS12 TrustStore (.p12) generated successfully using OpenSSL"
+        log_message "INFO" "  File: $VAULT_CERT_DIR/vault-ca.p12"
+        log_message "INFO" "  Alias: vault-ca"
+        log_message "INFO" "  Password: unix11"
+    else
+        log_message "ERROR" "✗ Failed to generate PKCS12 TrustStore (.p12)"
+        exit 1
+    fi
+fi
+
+# Step 10: Import JKS TrustStore to PKCS12 using keytool (preferred method)
+log_message "INFO" "Step 10/10: Importing JKS TrustStore to vault-ca.p12 using keytool..."
+if command -v keytool &> /dev/null && [[ -f "vault-ca-truststore.jks" ]]; then
+    # Use keytool -importkeystore to properly convert JKS to PKCS12
+    keytool -importkeystore \
+      -srckeystore "vault-ca-truststore.jks" \
+      -srcstoretype JKS \
+      -srcstorepass unix11 \
+      -srcalias vault-ca \
+      -destkeystore "vault-ca.p12" \
+      -deststoretype PKCS12 \
+      -deststorepass unix11 \
+      -destalias vault-ca \
+      -noprompt \
+      >> "$LOG_FILE" 2>&1
+    
+    if [[ -f "vault-ca.p12" ]]; then
+        log_message "INFO" "✓ JKS TrustStore successfully imported to vault-ca.p12"
+        log_message "INFO" "  File: $VAULT_CERT_DIR/vault-ca.p12"
+        log_message "INFO" "  Source: vault-ca-truststore.jks"
+        log_message "INFO" "  Alias: vault-ca"
+        log_message "INFO" "  Password: unix11"
+        log_message "INFO" "  Method: keytool -importkeystore"
+    else
+        log_message "ERROR" "✗ Failed to import JKS to PKCS12"
+        exit 1
+    fi
+else
+    log_message "INFO" "Skipping keytool import (keytool not available or .jks not found)"
+    log_message "INFO" "Using OpenSSL-generated vault-ca.p12 instead"
+fi
+
 # Summary
 log_message "INFO" "CA certificate files are available at: $CA_DIR"
 log_message "INFO" "  - CA Certificate: $CA_DIR/ca.crt"
@@ -255,9 +343,12 @@ log_message "INFO" "  - CSR: $VAULT_CERT_DIR/$NAMESPACE.csr"
 log_message "INFO" "  - Certificate: $VAULT_CERT_DIR/$NAMESPACE.crt"
 log_message "INFO" "  - Private Key: $VAULT_CERT_DIR/$NAMESPACE.key"
 log_message "INFO" "  - P12: $VAULT_CERT_DIR/$NAMESPACE.p12"
+log_message "INFO" "Java TrustStore files are available at: $VAULT_CERT_DIR"
+log_message "INFO" "  - JKS TrustStore: $VAULT_CERT_DIR/vault-ca-truststore.jks (Password: unix11)"
+log_message "INFO" "  - PKCS12 TrustStore: $VAULT_CERT_DIR/vault-ca.p12 (Password: unix11, Alias: vault-ca)"
 
 write_section_header "CERTIFICATE GENERATION COMPLETED"
-log_message "INFO" "TLS certificates generated successfully!"
+log_message "INFO" "TLS certificates and truststore files generated successfully!"
 log_message "INFO" "Kubernetes secret 'vault-server-tls' created in namespace '$NAMESPACE'"
 log_message "INFO" "Log file: $(get_log_file_path)"
 log_message "INFO" ""
