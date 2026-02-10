@@ -52,6 +52,7 @@ vault-cluster-setup/
 ├── deploy-prerequisites.sh          # Prerequisites deployment
 ├── deploy-vault-cluster.sh          # Vault cluster deployment
 ├── deploy-post-install.sh           # Post-installation tasks
+├── fix-unsealer-vault.sh            # Quick init/unseal unsealer vault
 ├── modules/
 │   └── logger.sh                    # Logging utilities
 ├── logs/                            # Deployment logs (auto-created)
@@ -311,10 +312,24 @@ Log levels: DEBUG, INFO, WARN, ERROR
 After successful deployment:
 
 1. **Initialize Vault**
+   
+   **Option A - Standard Method:**
    ```bash
    kubectl exec -n vault vault-0 -- vault operator init
    ```
    ⚠️ **Save the unseal keys and root token securely!**
+   
+   **Option B - Quick Fix (for unsealer-vault):**
+   ```bash
+   ./fix-unsealer-vault.sh
+   ```
+   This script automatically:
+   - Initializes unsealer-vault if not already done (5 key shares, threshold 3)
+   - Unseals all vault pods (vault-0, vault-1, vault-2)
+   - Saves init keys to `/tmp/unsealer-vault-init-keys.json`
+   - Displays root token and verification status
+   
+   ⚠️ **Save the keys file securely and delete from /tmp!**
 
 2. **Unseal Vault**
    ```bash

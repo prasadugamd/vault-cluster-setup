@@ -143,6 +143,21 @@ vault-2   0/1     Running   0          2m
 
 ### Step 4: Initialize Vault
 
+**Option A - Quick Fix (Automated):**
+```bash
+./fix-unsealer-vault.sh
+```
+
+This script automatically:
+- Checks if vault is already initialized
+- Initializes with 5 key shares, threshold 3
+- Unseals all vault pods (vault-0, vault-1, vault-2)
+- Saves init keys to `/tmp/unsealer-vault-init-keys.json`
+- Displays root token and verification status
+
+⚠️ **IMPORTANT**: Save the keys file securely and delete from /tmp!
+
+**Option B - Manual Method:**
 ```bash
 oc exec vault-0 -n unsealer-vault -- vault operator init \
   -key-shares=5 \

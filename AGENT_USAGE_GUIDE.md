@@ -153,6 +153,19 @@ To use the Vault Deployment Agent, reference it in your GitHub Copilot chat:
 5. Verifies cluster status
 6. **Important**: Reminds you to save keys securely
 
+**Alternative - Quick Fix Command**:
+```
+@vault-deployment-agent Fix unsealer vault
+```
+
+**What the agent does**:
+1. Executes: `./fix-unsealer-vault.sh`
+2. Automatically initializes if not already done
+3. Unseals all vault pods (vault-0, vault-1, vault-2)
+4. Saves init keys to /tmp/unsealer-vault-init-keys.json
+5. Displays root token and verification status
+6. **Use this for quick initialization/unsealing of unsealer-vault**
+
 ### 9. Selective Deployment Steps
 
 **Scenario**: Run deployment but skip certain steps.

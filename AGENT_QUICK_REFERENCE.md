@@ -35,6 +35,7 @@
 |---------|--------|
 | Initialize unsealer vault | Runs vault operator init |
 | Initialize and unseal unsealer vault | Init + unseal all pods |
+| Fix unsealer vault | Quick init/unseal using fix-unsealer-vault.sh |
 | Enable transit on unsealer vault | Sets up auto-unseal |
 
 ### Troubleshooting
@@ -145,6 +146,7 @@ Agent has access to these scripts:
 - `deploy-prerequisites.sh` - Prerequisites
 - `deploy-vault-cluster.sh` - Cluster deployment
 - `deploy-post-install.sh` - Post-install tasks
+- `fix-unsealer-vault.sh` - Quick initialize/unseal unsealer vault
 
 ## Configuration Files
 

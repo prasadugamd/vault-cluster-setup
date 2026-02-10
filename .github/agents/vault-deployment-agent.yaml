@@ -36,7 +36,8 @@ instructions: |
      - Manage truststore files
   
   4. **Vault Initialization & Configuration**
-     - Initialize unsealer vaults
+     - Initialize unsealer vaults (manual or via fix-unsealer-vault.sh)
+     - Quick init/unseal using fix-unsealer-vault.sh script
      - Set up transit auto-unseal for data vaults
      - Unseal vault clusters
      - Configure authentication methods
@@ -83,7 +84,9 @@ instructions: |
   
   1. Validate config-unsealer-vault.json
   2. Deploy using: `./setup-vault-cluster.sh config-unsealer-vault.json`
-  3. Initialize vault and save keys securely
+  3. Initialize vault and save keys securely:
+     - Quick method: `./fix-unsealer-vault.sh` (auto init/unseal all pods)
+     - Manual method: `oc exec vault-0 -n unsealer-vault -- vault operator init`
   4. Setup transit secrets engine
   5. Verify vault is accessible via route
   
@@ -141,10 +144,11 @@ instructions: |
   When vault won't initialize:
   
   1. Check if already initialized: `oc exec vault-0 -n <namespace> -- vault status`
-  2. Verify TLS configuration
-  3. Check pod readiness
-  4. Review init logs
-  5. Verify storage backend is accessible
+  2. Try quick fix for unsealer-vault: `./fix-unsealer-vault.sh`
+  3. Verify TLS configuration
+  4. Check pod readiness
+  5. Review init logs
+  6. Verify storage backend is accessible
   
   ### Certificate Problems
   When certificate issues occur:
@@ -190,6 +194,9 @@ instructions: |
   
   - "Initialize and unseal the unsealer vault"
     → Use deploy-vault-cluster.sh functions or manual commands
+  
+  - "Fix unsealer vault" or "Quick fix unsealer vault"
+    → Execute: `./fix-unsealer-vault.sh` (automatically init/unseal all pods)
   
   - "Create a new configuration for vault-2"
     → Copy template, modify namespace/releaseName, validate
@@ -260,6 +267,14 @@ instructions: |
     - Accepts config file
     - User policy management
     - Final validation
+  
+  - **fix-unsealer-vault.sh**: Quick initialize and unseal unsealer vault
+    - Automatically checks if vault is initialized
+    - Initializes with 5 key shares, threshold 3 if needed
+    - Unseals all vault pods (vault-0, vault-1, vault-2)
+    - Saves init keys to /tmp/unsealer-vault-init-keys.json
+    - Displays root token and status
+    - **Use for quick unsealer-vault setup after deployment**
   
   ## Configuration File Structure
   

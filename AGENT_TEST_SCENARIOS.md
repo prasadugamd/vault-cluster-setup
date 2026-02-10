@@ -65,6 +65,7 @@ Next Steps:
 
 #### Step 3: Initialize Unsealer Vault
 
+**Option A - Standard Method**:
 ```
 @vault-deployment-agent Initialize and unseal the unsealer vault
 ```
@@ -76,6 +77,19 @@ Next Steps:
 - Unseals all three pods
 - Verifies cluster status
 - **Reminds to save keys securely**
+
+**Option B - Quick Fix Method**:
+```
+@vault-deployment-agent Fix unsealer vault
+```
+
+**Expected Response**:
+- Executes `./fix-unsealer-vault.sh`
+- Initializes vault if needed (5 key shares, threshold 3)
+- Unseals vault-0, vault-1, vault-2 pods
+- Saves keys to /tmp/unsealer-vault-init-keys.json
+- Displays root token
+- Verifies cluster status
 
 #### Step 4: Verify Deployment
 
