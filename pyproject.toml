@@ -1,0 +1,18 @@
+[project]
+name = "vault-cluster-mcp-server-python"
+version = "1.0.0"
+description = "Python conversion of the Vault Cluster MCP server"
+requires-python = ">=3.10"
+dependencies = [
+  "mcp>=1.0.0",
+]
+
+[project.scripts]
+vault-cluster-mcp-server-py = "python_src.index:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["python_src*"]
