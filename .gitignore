@@ -42,3 +42,7 @@ npm-debug.log*
 # Vault keys (sensitive)
 unseal-keys.json
 root-token.txt
+
+# Python cache
+__pycache__/
+*.py[cod]
