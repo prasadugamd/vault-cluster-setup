@@ -345,6 +345,8 @@ deploy_vault_cluster() {
     
     if [[ -z "$VALUES_FLAG" ]]; then
         log_message "WARN" "No values files found, using default Helm chart values"
+        log_message "WARN" "Long release/chart names can exceed Kubernetes' 63-character limit"
+        log_message "WARN" "Applying fullnameOverride=vault (override in custom-values.yaml if needed)"
     else
         log_message "INFO" "Using values files:$VALUES_FLAG"
     fi
@@ -355,14 +357,18 @@ deploy_vault_cluster() {
     log_message "INFO" "Namespace: $NAMESPACE"
     log_message "INFO" "Chart Source: $CHART_SOURCE"
     
+    # Shorten Kubernetes resource names (pods: vault-0, services: vault, vault-internal, etc.)
+    FULLNAME_OVERRIDE=$(jq -r '.deployment.fullnameOverride // "vault"' "$CONFIG_FILE")
+    
     # Build Helm command with route override if routeUrl is specified
-    HELM_EXTRA_ARGS=""
+    HELM_EXTRA_ARGS="--set fullnameOverride=$FULLNAME_OVERRIDE"
     if [[ -n "$ROUTE_URL" ]]; then
-        HELM_EXTRA_ARGS="--set server.route.enabled=true --set server.route.host=$ROUTE_URL"
+        HELM_EXTRA_ARGS="$HELM_EXTRA_ARGS --set server.route.enabled=true --set server.route.host=$ROUTE_URL"
         log_message "INFO" "Route URL: $ROUTE_URL"
     fi
+    log_message "INFO" "fullnameOverride: $FULLNAME_OVERRIDE"
     
-    if helm upgrade --install "$RELEASE_NAME" "$CHART_SOURCE" --namespace "$NAMESPACE" $VALUES_FLAG $HELM_EXTRA_ARGS --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
+    if helm upgrade --install "$RELEASE_NAME" "$CHART_SOURCE" --namespace "$NAMESPACE" $HELM_EXTRA_ARGS $VALUES_FLAG --timeout "$HELM_TIMEOUT" --wait >> "$LOG_FILE" 2>&1; then
         log_message "INFO" "✓ Vault cluster deployed successfully"
     else
         log_message "ERROR" "✗ Vault cluster deployment failed"
