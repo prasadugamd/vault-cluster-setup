@@ -3,16 +3,21 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .common import run_shell, text_response, ToolResponse
+from .common import run_command, text_response, ToolResponse, require_ident
 
 
 def troubleshoot_deployment(args: dict[str, Any]) -> ToolResponse:
-    namespace = args.get("namespace")
     release_name = args.get("releaseName")
     check_type = args.get("checkType", "all")
     pod_name = args.get("podName")
 
     try:
+        namespace = require_ident(args.get("namespace"), "namespace")
+        if release_name:
+            release_name = require_ident(release_name, "releaseName")
+        if pod_name:
+            pod_name = require_ident(pod_name, "podName")
+
         response = f"# Troubleshooting: {namespace}\n\n"
 
         if check_type in ("all", "pods"):
@@ -42,40 +47,38 @@ def troubleshoot_deployment(args: dict[str, Any]) -> ToolResponse:
 
 
 def _check_pods(namespace: str, release_name: str | None) -> str:
-    command = f"oc get pods -n {namespace}"
+    command = ["oc", "get", "pods", "-n", namespace]
     if release_name:
-        command += f" -l app.kubernetes.io/instance={release_name}"
-    command += " -o wide"
+        command.extend(["-l", f"app.kubernetes.io/instance={release_name}"])
+    command.append("-o")
+    command.append("wide")
 
     try:
-        stdout, _ = run_shell(command)
+        stdout, _ = run_command(command)
         return f"## Pod Status\n\n```\n{stdout}```\n\n"
     except Exception:  # noqa: BLE001
         return "## Pod Status\n\nUnable to retrieve pod status\n\n"
 
 
 def _get_pod_logs(namespace: str, pod_name: str) -> str:
-    command = f"oc logs -n {namespace} {pod_name} --tail=100"
     try:
-        stdout, _ = run_shell(command)
+        stdout, _ = run_command(["oc", "logs", "-n", namespace, pod_name, "--tail=100"])
         return f"## Pod Logs: {pod_name}\n\n```\n{stdout}```\n\n"
     except Exception:  # noqa: BLE001
         return f"## Pod Logs: {pod_name}\n\nUnable to retrieve logs\n\n"
 
 
 def _check_helm_release(namespace: str, release_name: str) -> str:
-    command = f"helm status {release_name} -n {namespace}"
     try:
-        stdout, _ = run_shell(command)
+        stdout, _ = run_command(["helm", "status", release_name, "-n", namespace])
         return f"## Helm Release Status\n\n```\n{stdout}```\n\n"
     except Exception:  # noqa: BLE001
         return "## Helm Release Status\n\nRelease not found or error occurred\n\n"
 
 
 def _check_route(namespace: str, release_name: str) -> str:
-    command = f"oc get route -n {namespace} {release_name}-route -o wide"
     try:
-        stdout, _ = run_shell(command)
+        stdout, _ = run_command(["oc", "get", "route", "-n", namespace, f"{release_name}-route", "-o", "wide"])
         return f"## Route Status\n\n```\n{stdout}```\n\n"
     except Exception:  # noqa: BLE001
         return "## Route Status\n\nRoute not found\n\n"
@@ -83,9 +86,8 @@ def _check_route(namespace: str, release_name: str) -> str:
 
 def _check_vault_status(namespace: str, release_name: str) -> str:
     pod_name = f"{release_name}-0"
-    command = f"oc exec -n {namespace} {pod_name} -- vault status"
     try:
-        stdout, _ = run_shell(command)
+        stdout, _ = run_command(["oc", "exec", "-n", namespace, pod_name, "--", "vault", "status"])
         return f"## Vault Status\n\n```\n{stdout}```\n\n"
     except Exception:  # noqa: BLE001
         return "## Vault Status\n\nUnable to check vault status (pod may not be ready)\n\n"
@@ -94,7 +96,7 @@ def _check_vault_status(namespace: str, release_name: str) -> str:
 def _generate_remediation_suggestions(namespace: str) -> str:
     suggestions: list[str] = []
     try:
-        stdout, _ = run_shell(f"oc get pods -n {namespace} -o json")
+        stdout, _ = run_command(["oc", "get", "pods", "-n", namespace, "-o", "json"])
         pods = json.loads(stdout)
         items = pods.get("items", [])
 

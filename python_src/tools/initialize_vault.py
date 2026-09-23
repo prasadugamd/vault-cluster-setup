@@ -3,18 +3,23 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .common import run_shell, text_response, ToolResponse
+from .common import run_command, text_response, ToolResponse, require_ident, require_unseal_key
 
 
 def initialize_vault(args: dict[str, Any]) -> ToolResponse:
-    namespace = args.get("namespace")
-    release_name = args.get("releaseName")
     operation = args.get("operation")
     unseal_keys = args.get("unsealKeys", [])
-    key_shares = int(args.get("keyShares", 5))
-    key_threshold = int(args.get("keyThreshold", 3))
 
     try:
+        namespace = require_ident(args.get("namespace"), "namespace")
+        release_name = require_ident(args.get("releaseName"), "releaseName")
+        key_shares = int(args.get("keyShares", 5))
+        key_threshold = int(args.get("keyThreshold", 3))
+        if not 1 <= key_shares <= 32:
+            raise ValueError("keyShares must be between 1 and 32")
+        if not 1 <= key_threshold <= key_shares:
+            raise ValueError("keyThreshold must be between 1 and keyShares")
+
         if operation == "init":
             return _init_vault(namespace, release_name, key_shares, key_threshold)
         if operation == "unseal":
@@ -33,11 +38,22 @@ def initialize_vault(args: dict[str, Any]) -> ToolResponse:
 
 def _init_vault(namespace: str, release_name: str, key_shares: int, key_threshold: int) -> ToolResponse:
     pod_name = f"{release_name}-0"
-    command = (
-        f"oc exec -n {namespace} {pod_name} -- vault operator init "
-        f"-key-shares={key_shares} -key-threshold={key_threshold} -format=json"
+    stdout, _ = run_command(
+        [
+            "oc",
+            "exec",
+            "-n",
+            namespace,
+            pod_name,
+            "--",
+            "vault",
+            "operator",
+            "init",
+            f"-key-shares={key_shares}",
+            f"-key-threshold={key_threshold}",
+            "-format=json",
+        ]
     )
-    stdout, _ = run_shell(command)
     init_data = json.loads(stdout)
 
     response = "# Vault Initialization Complete\n\n"
@@ -66,8 +82,10 @@ def _unseal_vault(namespace: str, release_name: str, unseal_keys: list[str]) -> 
     response += f"**Release Name:** {release_name}\n\n"
 
     for index, key in enumerate(unseal_keys, start=1):
-        command = f"oc exec -n {namespace} {pod_name} -- vault operator unseal {key}"
-        stdout, _ = run_shell(command)
+        safe_key = require_unseal_key(key)
+        stdout, _ = run_command(
+            ["oc", "exec", "-n", namespace, pod_name, "--", "vault", "operator", "unseal", safe_key]
+        )
         response += f"**Unseal Key {index} applied**\n\n```\n{stdout}```\n\n"
 
     return text_response(response)
@@ -76,8 +94,8 @@ def _unseal_vault(namespace: str, release_name: str, unseal_keys: list[str]) -> 
 def _enable_transit(namespace: str, release_name: str) -> ToolResponse:
     pod_name = f"{release_name}-0"
     commands = [
-        f"oc exec -n {namespace} {pod_name} -- vault secrets enable transit",
-        f"oc exec -n {namespace} {pod_name} -- vault write -f transit/keys/autounseal",
+        ["oc", "exec", "-n", namespace, pod_name, "--", "vault", "secrets", "enable", "transit"],
+        ["oc", "exec", "-n", namespace, pod_name, "--", "vault", "write", "-f", "transit/keys/autounseal"],
     ]
 
     response = "# Transit Secrets Engine Setup\n\n"
@@ -85,7 +103,7 @@ def _enable_transit(namespace: str, release_name: str) -> ToolResponse:
     response += f"**Release Name:** {release_name}\n\n"
 
     for command in commands:
-        stdout, _ = run_shell(command)
+        stdout, _ = run_command(command)
         response += f"```\n{stdout}```\n\n"
 
     response += "Transit secrets engine enabled and autounseal key created.\n"
@@ -94,10 +112,11 @@ def _enable_transit(namespace: str, release_name: str) -> ToolResponse:
 
 def _check_seal_status(namespace: str, release_name: str) -> ToolResponse:
     pod_name = f"{release_name}-0"
-    command = f"oc exec -n {namespace} {pod_name} -- vault status -format=json"
 
     try:
-        stdout, _ = run_shell(command)
+        stdout, _ = run_command(
+            ["oc", "exec", "-n", namespace, pod_name, "--", "vault", "status", "-format=json"]
+        )
         status = json.loads(stdout)
 
         response = "# Vault Seal Status\n\n"

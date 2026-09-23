@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .common import run_shell, text_response, ToolResponse
+from .common import run_command, text_response, ToolResponse, require_ident
 
 
 def check_cluster_status(args: dict[str, Any]) -> ToolResponse:
@@ -12,11 +12,16 @@ def check_cluster_status(args: dict[str, Any]) -> ToolResponse:
     detailed = bool(args.get("detailed", False))
 
     try:
+        if namespace:
+            namespace = require_ident(namespace, "namespace")
+        if release_name:
+            release_name = require_ident(release_name, "releaseName")
+
         response = "# Cluster Status Check\n\n"
 
         response += "## Cluster Connectivity\n\n"
         try:
-            stdout, _ = run_shell("oc cluster-info")
+            stdout, _ = run_command(["oc", "cluster-info"])
             response += f"Connected to cluster\n\n```\n{stdout}```\n\n"
         except Exception:
             response += "Not connected to cluster\n\n"
@@ -26,23 +31,25 @@ def check_cluster_status(args: dict[str, Any]) -> ToolResponse:
             response += f"## Namespace: {namespace}\n\n"
 
             try:
-                pod_command = f"oc get pods -n {namespace}"
+                pod_command = ["oc", "get", "pods", "-n", namespace]
                 if release_name:
-                    pod_command += f" -l app.kubernetes.io/instance={release_name}"
-                pod_status, _ = run_shell(pod_command)
+                    pod_command.extend(["-l", f"app.kubernetes.io/instance={release_name}"])
+                pod_status, _ = run_command(pod_command)
                 response += f"### Pods\n\n```\n{pod_status}```\n\n"
             except Exception:
                 response += "### Pods\n\nUnable to retrieve pods\n\n"
 
             if release_name:
                 try:
-                    svc_status, _ = run_shell(f"oc get svc -n {namespace} -l app.kubernetes.io/instance={release_name}")
+                    svc_status, _ = run_command(
+                        ["oc", "get", "svc", "-n", namespace, "-l", f"app.kubernetes.io/instance={release_name}"]
+                    )
                     response += f"### Services\n\n```\n{svc_status}```\n\n"
                 except Exception:
                     response += "### Services\n\nUnable to retrieve services\n\n"
 
                 try:
-                    route_status, _ = run_shell(f"oc get route -n {namespace}")
+                    route_status, _ = run_command(["oc", "get", "route", "-n", namespace])
                     response += f"### Routes\n\n```\n{route_status}```\n\n"
                 except Exception:
                     response += "### Routes\n\nNo routes found\n\n"
@@ -50,14 +57,16 @@ def check_cluster_status(args: dict[str, Any]) -> ToolResponse:
                 if detailed:
                     response += "### Vault Status\n\n"
                     try:
-                        vault_status, _ = run_shell(f"oc exec -n {namespace} {release_name}-0 -- vault status")
+                        vault_status, _ = run_command(
+                            ["oc", "exec", "-n", namespace, f"{release_name}-0", "--", "vault", "status"]
+                        )
                         response += f"```\n{vault_status}```\n\n"
                     except Exception:
                         response += "Unable to check vault status\n\n"
 
                 response += "### Helm Release\n\n"
                 try:
-                    helm_status, _ = run_shell(f"helm list -n {namespace} -f {release_name}")
+                    helm_status, _ = run_command(["helm", "list", "-n", namespace, "-f", release_name])
                     response += f"```\n{helm_status}```\n\n"
                 except Exception:
                     response += "Unable to retrieve helm release info\n\n"
@@ -75,8 +84,11 @@ def _generate_health_summary(namespace: str | None, release_name: str | None) ->
         return "Cluster is accessible\nSpecify namespace for detailed health check\n"
 
     try:
-        selector = f"-l app.kubernetes.io/instance={release_name}" if release_name else ""
-        stdout, _ = run_shell(f"oc get pods -n {namespace} {selector} -o json")
+        pod_command = ["oc", "get", "pods", "-n", namespace]
+        if release_name:
+            pod_command.extend(["-l", f"app.kubernetes.io/instance={release_name}"])
+        pod_command.extend(["-o", "json"])
+        stdout, _ = run_command(pod_command)
         pods = json.loads(stdout)
         items = pods.get("items", [])
 

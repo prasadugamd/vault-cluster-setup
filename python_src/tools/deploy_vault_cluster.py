@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-import shlex
 
-from .common import text_response, run_shell, ToolResponse
+from .common import text_response, run_command, ToolResponse, require_filename
 
 
 def deploy_vault_cluster(args: dict[str, Any]) -> ToolResponse:
@@ -15,18 +14,16 @@ def deploy_vault_cluster(args: dict[str, Any]) -> ToolResponse:
     working_directory = args.get("workingDirectory") or str(Path.cwd())
 
     try:
-        config_file_paths = [str(Path(working_directory) / f) for f in config_files]
-
-        command = f"cd {shlex.quote(working_directory)} && ./setup-vault-cluster.sh"
-        for config_path in config_file_paths:
-            command += f" {shlex.quote(Path(config_path).name)}"
+        command = ["./setup-vault-cluster.sh"]
+        for config_file in config_files:
+            command.append(require_filename(Path(config_file).name, "configFile"))
 
         if skip_certificates:
-            command += " --skip-certificates"
+            command.append("--skip-certificates")
         if skip_prerequisites:
-            command += " --skip-prerequisites"
+            command.append("--skip-prerequisites")
 
-        stdout, stderr = run_shell(command, cwd=working_directory, max_bytes=10 * 1024 * 1024)
+        stdout, stderr = run_command(command, cwd=working_directory, max_bytes=10 * 1024 * 1024)
 
         response = "# Vault Cluster Deployment\n\n"
         response += f"**Deployment Type:** {deployment_type}\n"
